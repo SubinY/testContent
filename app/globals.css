@@ -1,0 +1,87 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --app-bg: #f6f3ec;
+  --app-surface: #fffdf8;
+  --app-text: #182635;
+  --app-muted: #556174;
+  --app-accent: #d97706;
+  --app-border: #dbe3ed;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: var(--font-body), ui-sans-serif, sans-serif;
+  background:
+    radial-gradient(circle at 2% 5%, rgba(217, 119, 6, 0.12), transparent 28%),
+    radial-gradient(circle at 90% 5%, rgba(37, 99, 235, 0.12), transparent 25%),
+    linear-gradient(155deg, #f8f3ea 0%, #fff9f2 45%, #edf4fb 100%);
+}
+
+h1,
+h2,
+h3,
+h4 {
+  font-family: var(--font-display), ui-serif, serif;
+}
+
+.page-wrap {
+  margin: 0 auto;
+  width: min(1220px, 100%);
+  padding: 24px;
+}
+
+.card-surface {
+  border-radius: 1.25rem;
+  border: 1px solid var(--app-border);
+  background: var(--app-surface);
+  box-shadow: 0 12px 30px rgba(24, 38, 53, 0.08);
+}
+
+.btn-primary {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  border: 0;
+  border-radius: 0.95rem;
+  background: linear-gradient(120deg, #d97706, #f59e0b);
+  color: #fff;
+  padding: 0.75rem 1rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  box-shadow: 0 14px 24px rgba(217, 119, 6, 0.22);
+}
+
+.btn-primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 16px 30px rgba(217, 119, 6, 0.28);
+}
+
+.btn-secondary {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  border-radius: 0.95rem;
+  border: 1px solid #d3dbe6;
+  background: #ffffff;
+  color: #1f2937;
+  padding: 0.75rem 1rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.2s ease, border-color 0.2s ease;
+}
+
+.btn-secondary:hover {
+  transform: translateY(-1px);
+  border-color: #f59e0b;
+}
