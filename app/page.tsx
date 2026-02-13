@@ -4,6 +4,7 @@ import { FormEvent, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { useRouter } from "next/navigation";
 
+import { buildMockGeneratedTest } from "@/lib/mock-test";
 import { saveGeneratedTest, saveLatestTestId } from "@/lib/storage";
 import { useTestStore } from "@/store/testStore";
 import type { GenerateSseEvent, GeneratedTest, LlmProviderSelection } from "@/types";
@@ -17,12 +18,14 @@ const PROVIDER_LABELS: Record<LlmProviderSelection, string> = {
   deepseek: "DeepSeek",
   local: "本地"
 };
+type RunMode = "api" | "local";
 
 export default function HomePage() {
   const router = useRouter();
   const [topic, setTopic] = useState("");
   const [count, setCount] = useState(3);
   const [provider, setProvider] = useState<LlmProviderSelection>("auto");
+  const [runMode, setRunMode] = useState<RunMode>("api");
   const [errorText, setErrorText] = useState("");
 
   const {
@@ -63,6 +66,19 @@ export default function HomePage() {
     addStreamEvent("请求已提交。");
 
     try {
+      if (runMode === "local") {
+        setProgress(12, "使用本地模板生成中。");
+        addStreamEvent("本地模板模式：不调用远程 API。");
+        const test = buildMockGeneratedTest(topic.trim(), count);
+        saveGeneratedTest(test);
+        saveLatestTestId(test.id);
+        setCurrentTest(test);
+        setGenerating(false);
+        setProgress(100, "本地模板生成完成，正在跳转预览...");
+        router.push(`/preview/${test.id}`);
+        return;
+      }
+
       const response = await fetch("/api/generate", {
         method: "POST",
         headers: {
@@ -159,6 +175,36 @@ export default function HomePage() {
 
           <form onSubmit={handleGenerate} className="mt-8 grid gap-6">
             <label className="grid gap-2">
+              <span className="text-sm font-semibold text-slate-700">运行模式</span>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setRunMode("api")}
+                  className={[
+                    "h-10 cursor-pointer rounded-xl border text-sm font-semibold transition-all",
+                    runMode === "api"
+                      ? "border-amber-300 bg-amber-50 text-amber-900"
+                      : "border-slate-300 bg-white text-slate-700 hover:border-amber-200 hover:bg-amber-50/50"
+                  ].join(" ")}
+                >
+                  API测试
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRunMode("local")}
+                  className={[
+                    "h-10 cursor-pointer rounded-xl border text-sm font-semibold transition-all",
+                    runMode === "local"
+                      ? "border-amber-300 bg-amber-50 text-amber-900"
+                      : "border-slate-300 bg-white text-slate-700 hover:border-amber-200 hover:bg-amber-50/50"
+                  ].join(" ")}
+                >
+                  本地测试
+                </button>
+              </div>
+            </label>
+
+            <label className="grid gap-2">
               <span className="text-sm font-semibold text-slate-700">测试主题</span>
               <input
                 value={topic}
@@ -198,29 +244,35 @@ export default function HomePage() {
               />
             </label>
 
-            <label className="grid gap-2">
-              <span className="text-sm font-semibold text-slate-700">模型提供方</span>
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                {PROVIDERS.map((value) => (
-                  <button
-                    key={value}
-                    type="button"
-                    onClick={() => setProvider(value)}
-                    className={[
-                      "h-10 cursor-pointer rounded-xl border text-sm font-semibold uppercase transition-all",
-                      provider === value
-                        ? "border-amber-300 bg-amber-50 text-amber-900"
-                        : "border-slate-300 bg-white text-slate-700 hover:border-amber-200 hover:bg-amber-50/50"
-                    ].join(" ")}
-                  >
-                    {PROVIDER_LABELS[value]}
-                  </button>
-                ))}
+            {runMode === "api" ? (
+              <label className="grid gap-2">
+                <span className="text-sm font-semibold text-slate-700">模型提供方</span>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  {PROVIDERS.map((value) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => setProvider(value)}
+                      className={[
+                        "h-10 cursor-pointer rounded-xl border text-sm font-semibold uppercase transition-all",
+                        provider === value
+                          ? "border-amber-300 bg-amber-50 text-amber-900"
+                          : "border-slate-300 bg-white text-slate-700 hover:border-amber-200 hover:bg-amber-50/50"
+                      ].join(" ")}
+                    >
+                      {PROVIDER_LABELS[value]}
+                    </button>
+                  ))}
+                </div>
+              </label>
+            ) : (
+              <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                本地测试模式：使用预置 5 种变体模板与固定图像，不调用文本/图像远程 API。
               </div>
-            </label>
+            )}
 
             <button type="submit" className="btn-primary disabled:cursor-not-allowed disabled:opacity-60" disabled={!canSubmit}>
-              {isGenerating ? "生成中..." : "开始生成"}
+              {isGenerating ? "测试中..." : runMode === "api" ? "开始测试" : "开始本地测试"}
             </button>
 
             {errorText ? <p className="text-sm font-medium text-rose-600">{errorText}</p> : null}

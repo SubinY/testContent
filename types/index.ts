@@ -25,12 +25,26 @@ export interface TestResult {
 export interface TestVariant {
   id: string;
   label: string;
+  styleKey?: string;
+  styleName?: string;
+  textProvider?: "openai" | "deepseek" | "local";
+  textModel?: string;
+  imageProvider?: "nano-banana";
+  imageModel?: string;
   headline: string;
   description: string;
   coverTitle: string;
   coverSubtitle: string;
   questions: TestQuestion[];
   results: TestResult[];
+  imagePrompt?: string;
+  imageAspectRatio?: string;
+  imageAssets?: Array<{
+    provider: "nano-banana";
+    kind: "projection-core";
+    prompt: string;
+    url: string;
+  }>;
   hashtags: string[];
   dmScripts: string[];
   themeKey: string;

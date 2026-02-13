@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 768 768" role="img" aria-label="abstract grayscale projection image">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="50%" r="60%">
+      <stop offset="0%" stop-color="#d8d8d8"/>
+      <stop offset="60%" stop-color="#8f8f8f"/>
+      <stop offset="100%" stop-color="#232323"/>
+    </radialGradient>
+    <linearGradient id="shapeA" x1="0%" x2="100%" y1="0%" y2="100%">
+      <stop offset="0%" stop-color="#2f2f2f" stop-opacity="0.25"/>
+      <stop offset="100%" stop-color="#111111" stop-opacity="0.55"/>
+    </linearGradient>
+    <linearGradient id="shapeB" x1="0%" x2="100%" y1="100%" y2="0%">
+      <stop offset="0%" stop-color="#111111" stop-opacity="0.2"/>
+      <stop offset="100%" stop-color="#4a4a4a" stop-opacity="0.5"/>
+    </linearGradient>
+  </defs>
+  <rect width="768" height="768" fill="url(#bg)"/>
+  <g fill="none" stroke="#2a2a2a" stroke-opacity="0.65">
+    <path d="M160 620 C140 540, 220 500, 210 430 C200 360, 150 310, 200 250" stroke-width="2"/>
+    <path d="M280 150 C370 210, 430 320, 360 420 C315 485, 250 540, 280 630" stroke-width="3"/>
+    <path d="M520 200 C560 250, 505 300, 530 360 C555 420, 630 455, 610 520" stroke-width="3"/>
+  </g>
+  <g>
+    <ellipse cx="300" cy="290" rx="110" ry="70" fill="url(#shapeA)"/>
+    <ellipse cx="430" cy="300" rx="70" ry="95" fill="url(#shapeB)" opacity="0.8"/>
+    <path d="M350 340 C390 260, 470 255, 510 355 C450 390, 400 390, 350 340 Z" fill="#1f1f1f" fill-opacity="0.45"/>
+    <path d="M260 360 C310 420, 360 470, 300 630 C230 550, 235 450, 260 360 Z" fill="#191919" fill-opacity="0.6"/>
+    <circle cx="470" cy="370" r="60" fill="#555" fill-opacity="0.18"/>
+    <circle cx="470" cy="370" r="38" fill="none" stroke="#3a3a3a" stroke-width="2" stroke-opacity="0.5"/>
+    <circle cx="470" cy="370" r="20" fill="none" stroke="#3a3a3a" stroke-width="2" stroke-opacity="0.5"/>
+    <circle cx="470" cy="540" r="72" fill="#676767" fill-opacity="0.35"/>
+    <circle cx="300" cy="540" r="26" fill="#2a2a2a" fill-opacity="0.4"/>
+  </g>
+  <g fill="#2f2f2f" fill-opacity="0.45">
+    <rect x="350" y="635" width="14" height="14" transform="rotate(40 357 642)"/>
+    <rect x="560" y="560" width="20" height="20" transform="rotate(-20 570 570)"/>
+    <rect x="280" y="670" width="40" height="40" transform="rotate(45 300 690)"/>
+    <circle cx="180" cy="620" r="18" fill="none" stroke="#2f2f2f" stroke-width="2" stroke-opacity="0.5"/>
+    <circle cx="180" cy="620" r="9" fill="none" stroke="#2f2f2f" stroke-width="2" stroke-opacity="0.5"/>
+  </g>
+</svg>

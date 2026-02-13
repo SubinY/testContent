@@ -1,7 +1,17 @@
 import { z } from "zod";
 
+import { attachGeneratedImage, NanoBananaClient } from "@/lib/image/nano-banana";
 import { getPreferredProviderFromEnv, UnifiedLlmClient } from "@/lib/llm/client";
-import { buildSystemPrompt, buildUserPrompt, generateLocalVariant, parseModelJson, repairVariantPayload } from "@/lib/prompts";
+import {
+  buildNanoBananaPrompt,
+  buildSystemPrompt,
+  buildUserPrompt,
+  generateLocalVariant,
+  parseModelJson,
+  repairVariantPayload,
+  sampleAssessmentStyles,
+  type AssessmentStyle
+} from "@/lib/prompts";
 import type { GeneratedTest, GenerateSseEvent, LlmProviderSelection, TestVariant } from "@/types";
 
 export const runtime = "nodejs";
@@ -29,25 +39,70 @@ async function createVariantWithProvider(params: {
   client: UnifiedLlmClient;
   topic: string;
   label: string;
+  style: AssessmentStyle;
   variantIndex: number;
   forceLocal: boolean;
+  imageClient: NanoBananaClient;
 }): Promise<TestVariant> {
-  const { client, topic, label, variantIndex, forceLocal } = params;
+  const { client, topic, label, style, variantIndex, forceLocal, imageClient } = params;
+  const imageModel = process.env.NANO_BANANA_MODEL ?? "nano-banana-fast";
+
+  const withImageMeta = async (base: TestVariant): Promise<TestVariant> => {
+    const imagePrompt = base.imagePrompt ?? buildNanoBananaPrompt(topic, style);
+    if (!imagePrompt || !imageClient.isAvailable()) {
+      return base;
+    }
+    try {
+      const imageUrl = await imageClient.generate({
+        prompt: imagePrompt,
+        aspectRatio: base.imageAspectRatio,
+        timeoutMs: 60_000
+      });
+      const withImage = attachGeneratedImage(base, imageUrl, imagePrompt);
+      if (!imageUrl) {
+        return withImage;
+      }
+      return {
+        ...withImage,
+        imageProvider: "nano-banana",
+        imageModel
+      };
+    } catch {
+      return base;
+    }
+  };
 
   if (forceLocal || !client.hasRemoteProvider()) {
-    return generateLocalVariant(topic, label, variantIndex);
+    const localVariant = generateLocalVariant(topic, label, variantIndex, style);
+    const withMeta: TestVariant = {
+      ...localVariant,
+      textProvider: "local",
+      textModel: "local-template"
+    };
+    return withImageMeta(withMeta);
   }
 
   let lastError: unknown = null;
   for (let attempt = 1; attempt <= 3; attempt += 1) {
     try {
       const response = await client.generate({
-        systemPrompt: buildSystemPrompt(label),
-        userPrompt: buildUserPrompt(topic, label),
+        systemPrompt: buildSystemPrompt(label, style),
+        userPrompt: buildUserPrompt(topic, label, style),
         timeoutMs: 30_000
       });
       const parsedPayload = parseModelJson(response.content);
-      return repairVariantPayload(parsedPayload, topic, label, variantIndex);
+      const repaired = repairVariantPayload(parsedPayload, {
+        topic,
+        label,
+        variantIndex,
+        style
+      });
+      const withMeta: TestVariant = {
+        ...repaired,
+        textProvider: response.provider,
+        textModel: response.model
+      };
+      return withImageMeta(withMeta);
     } catch (error) {
       lastError = error;
       if (attempt < 3) {
@@ -57,10 +112,20 @@ async function createVariantWithProvider(params: {
   }
 
   if (lastError) {
-    return generateLocalVariant(topic, label, variantIndex);
+    const localFallback: TestVariant = {
+      ...generateLocalVariant(topic, label, variantIndex, style),
+      textProvider: "local",
+      textModel: "local-template"
+    };
+    return withImageMeta(localFallback);
   }
 
-  return generateLocalVariant(topic, label, variantIndex);
+  const defaultFallback: TestVariant = {
+    ...generateLocalVariant(topic, label, variantIndex, style),
+    textProvider: "local",
+    textModel: "local-template"
+  };
+  return withImageMeta(defaultFallback);
 }
 
 export async function POST(request: Request): Promise<Response> {
@@ -75,9 +140,11 @@ export async function POST(request: Request): Promise<Response> {
   const requestedProvider = parsedBody.data.provider ?? getPreferredProviderFromEnv();
   const provider: LlmProviderSelection = requestedProvider;
   const forceLocal = provider === "local";
+  const sampledStyles = sampleAssessmentStyles(count);
   const llmClient = new UnifiedLlmClient({
     preferredProvider: provider
   });
+  const imageClient = new NanoBananaClient();
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -100,13 +167,18 @@ export async function POST(request: Request): Promise<Response> {
 
         const variants: TestVariant[] = [];
         for (let index = 0; index < count; index += 1) {
-          const label = String.fromCharCode(65 + index);
+          const picked = sampledStyles[index];
+          const label = picked?.label ?? String.fromCharCode(65 + index);
+          const style = picked?.style;
+          if (!style) {
+            throw new Error("未找到可用测评风格");
+          }
 
           controller.enqueue(
             toSseChunk({
               status: "progress",
               progress: 10 + Math.floor((index / count) * 70),
-              message: `正在生成 ${label} 版...`
+              message: `正在生成 ${label} 版（${style.name}）...`
             })
           );
 
@@ -114,8 +186,10 @@ export async function POST(request: Request): Promise<Response> {
             client: llmClient,
             topic,
             label,
+            style,
             variantIndex: index,
-            forceLocal
+            forceLocal,
+            imageClient
           });
 
           variants.push(variant);

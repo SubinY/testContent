@@ -90,7 +90,7 @@ export async function generateSlideScreenshots(variant: TestVariant): Promise<Re
   cover.appendChild(createParagraph(`共 ${variant.questions.length} 题 · 预计 3 分钟`, 28));
   slideEntries.push({ fileName: "screenshots/cover.png", node: cover });
 
-  variant.questions.slice(0, 8).forEach((question, index) => {
+  variant.questions.forEach((question, index) => {
     const slide = createBaseSlide(accent);
     slide.appendChild(createTag(`Q${index + 1}`, accent));
     slide.appendChild(createTitle(question.title));

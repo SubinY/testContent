@@ -3,7 +3,7 @@
 基于 Next.js 14 的心理测试生成与导出系统，支持：
 
 - SSE 流式生成（逐变体返回）
-- 预览 A/B/C 变体
+- 预览多变体（按请求 `count` 抽样风格）
 - 导出独立 HTML
 - 导出 1080x1440 截图包
 - 导出完整 ZIP（HTML + 截图 + 文案素材）
@@ -19,6 +19,10 @@ npm run dev
 ```
 
 浏览器打开 `http://localhost:3000`
+
+首页支持两种运行模式：
+- `API测试`：调用 `/api/generate` 与远程模型
+- `本地测试`：不调用远程 API，直接生成 5 种本地模板（用于 UI 联调）
 
 ---
 
@@ -38,6 +42,13 @@ OPENAI_MODEL=gpt-4-turbo-preview
 DEEPSEEK_API_KEY=
 DEEPSEEK_MODEL=deepseek-chat
 DEEPSEEK_BASE_URL=https://api.deepseek.com/v1
+
+# Nano Banana（图像生成）
+NANO_BANANA_API_KEY=
+NANO_BANANA_BASE_URL=https://grsai.dakka.com.cn
+NANO_BANANA_MODEL=nano-banana-fast
+NANO_BANANA_ASPECT_RATIO=auto
+NANO_BANANA_IMAGE_SIZE=1K
 ```
 
 ---
@@ -55,8 +66,8 @@ DEEPSEEK_BASE_URL=https://api.deepseek.com/v1
 ### 3.2 选择策略
 
 - `auto`：优先 DeepSeek，失败切 OpenAI，再失败走 local 生成
-- `openai`：优先 OpenAI，失败切 DeepSeek
-- `deepseek`：优先 DeepSeek，失败切 OpenAI
+- `openai`：仅使用 OpenAI；失败时不切换 DeepSeek，直接走 local 兜底
+- `deepseek`：仅使用 DeepSeek；失败时不切换 OpenAI，直接走 local 兜底
 - `local`：仅本地生成，不调用远程模型
 
 ### 3.3 每次请求动态指定 Provider
@@ -72,6 +83,13 @@ DEEPSEEK_BASE_URL=https://api.deepseek.com/v1
 ```
 
 `provider` 可选：`auto | openai | deepseek | local`
+
+### 3.4 风格抽样与结构差异化
+
+- 每次请求按 `count` 从 5 种风格中**无重复抽样**，不浪费 token
+- 5 种风格：图像投射型 / 场景剧情型 / 依恋指数型 / 人生潜力型 / 心理健康自评型
+- 每种风格有独立题目结构（题量与题干组织不同）
+- 图像投射型会追加调用 Nano Banana 生成核心视觉图（配置了 `NANO_BANANA_API_KEY` 时）
 
 ---
 
@@ -118,6 +136,11 @@ data: {"status":"error","message":"..."}
 2. `Export Screenshots`
 3. `Export Full ZIP`
 
+变体列表会显示每个变体实际调用来源：
+- `Text API`：`OPENAI / DEEPSEEK / LOCAL`
+- `Image API`：`NANO-BANANA / none`
+- 若使用了 Nano Banana，会附带可点击的 `Image URL` 便于检阅图片是否正确渲染
+
 完整 ZIP 内容：
 
 - `index.html`
@@ -163,7 +186,7 @@ npm run build
 
 ## 8. 端到端流程图（从输入主题开始）
 
-下面的流程图覆盖：输入测试主题 -> 生成多套题目（变体）-> 生成答案（结果卡 + 计分/区间）-> 预览 -> 导出 HTML/截图/ZIP。
+下面的流程图覆盖：输入测试主题 -> 风格抽样 -> 逐变体生成题目/答案 -> 图像风格调用 Nano Banana -> 预览 -> 导出 HTML/截图/ZIP。
 
 ```mermaid
 flowchart TD
@@ -173,7 +196,7 @@ flowchart TD
   subgraph FE[前端 /app]
     FE1[用户输入: topic\n选择: count(1-5), provider(auto/openai/deepseek/local)] --> FE2[POST /api/generate]
     FE2 --> FE3[读取 SSE: progress/variant/done/error]
-    FE3 -->|variant 事件| FE4[更新生成日志/进度\n(可逐个看到 A/B/C... 变体)]
+    FE3 -->|variant 事件| FE4[更新生成日志/进度\n逐个收到变体结果]
     FE3 -->|done 事件| FE5[保存到 LocalStorage\nlib/storage.ts: saveGeneratedTest + saveLatestTestId]
     FE5 --> FE6[写入 Zustand store\nstore/testStore.ts: setCurrentTest]
     FE6 --> FE7[跳转预览页\n/preview/[testId]]
@@ -185,12 +208,13 @@ flowchart TD
   subgraph API[后端 API /app/api/generate/route.ts]
     API0[接收 JSON: {topic,count,provider}] --> API1[zod 校验参数\ntopic 2-120, count 1-5]
     API1 --> API2[决定 provider\n优先: 请求体 provider\n否则: env LLM_PROVIDER]
-    API2 --> API3[构造 UnifiedLlmClient\nlib/llm/client.ts]
+    API2 --> API2A[按 count 抽样风格\nsampleAssessmentStyles(count)]
+    API2A --> API3[构造 UnifiedLlmClient + NanoBananaClient]
     API3 --> API4[开始 SSE Stream\nReadableStream]
 
     API4 --> API5{循环 index=0..count-1}
-    API5 --> API6[label = A/B/C/D/E\n按 index 生成]
-    API6 --> API7[发送 progress: 生成 label 变体]
+    API5 --> API6[取本轮 style + label]
+    API6 --> API7[发送 progress: 生成 label(风格名) 变体]
     API7 --> API8[createVariantWithProvider()]
     API8 --> API9[发送 variant 事件\n包含完整 TestVariant JSON]
     API9 --> API10[发送 progress: label 完成]
@@ -206,28 +230,32 @@ flowchart TD
   subgraph GEN[变体生成 /lib/prompts.ts]
     G0{forceLocal?\n或 hasRemoteProvider=false} -->|是| G1[generateLocalVariant()\n本地兜底生成\n(可离线跑通)]
     G0 -->|否| G2[最多重试 3 次\n每次 attempt 间隔 0.5s/1s/1.5s]
-    G2 --> G3[client.generate()\n统一走 Provider 列表]
-    G3 --> G4[buildSystemPrompt(label)\n内置风格: A/B/C... tone + guideline]
-    G3 --> G5[buildUserPrompt(topic,label)\n包含主题与结构要求]
+    G2 --> G3[client.generate()]
+    G3 --> G4[buildSystemPrompt(label,style)\n注入心理学理论/风格约束]
+    G3 --> G5[buildUserPrompt(topic,label,style)\n注入结构规则(题量/题型)]
     G3 --> G6[模型返回文本 content\n要求是 JSON 字符串]
     G6 --> G7[parseModelJson()\n从输出中提取/解析 JSON]
-    G7 --> G8[repairVariantPayload()\n字段修复 + 规范化 + 兜底]
-    G8 --> G9[校验 schema (zod)\n固定: 8题x4选项 + 4结果]
-    G9 --> G10[normalizeQuestions/Results\n补齐 id/score/scoreRange 等\n并注入主题相关默认值]
+    G7 --> G8[repairVariantPayload(payload,{topic,label,style})\n字段修复 + 风格结构规范化]
+    G8 --> G9[校验 schema (zod)\n题量可变(1~12) + 固定4结果卡]
+    G9 --> G10[normalizeQuestions/Results\n按风格产出不同题目结构]
+    G10 --> G11{style.requiresImage?}
+    G11 -->|是| G12[NanoBananaClient.generate()\n附加 imageAssets(url/prompt)]
+    G11 -->|否| G13[直接返回变体]
   end
 
   %% ==============
   %% LLM providers
   %% ==============
   subgraph LLM[统一大模型 /lib/llm]
-    L0[UnifiedLlmClient.generate()] --> L1{provider 顺序}
-    L1 -->|preferred=openai| L2[OpenAI -> DeepSeek]
-    L1 -->|preferred=deepseek 或 auto| L3[DeepSeek -> OpenAI]
-    L2 --> L4[provider.isAvailable()\n无 key 则跳过]
-    L3 --> L4
-    L4 --> L5[provider.generate()\n调用 OpenAI SDK chat.completions]
+    L0[UnifiedLlmClient.generate()] --> L1{provider 选择}
+    L1 -->|openai| L2[仅 OpenAI]
+    L1 -->|deepseek| L3[仅 DeepSeek]
+    L1 -->|auto| L4[DeepSeek -> OpenAI]
+    L2 --> L5[provider.generate()\nchat.completions]
+    L3 --> L5
+    L4 --> L5
     L5 --> L6[返回 {content, provider, model}]
-    L5 -->|错误| L7[记录错误\n尝试下一个 provider]
+    L5 -->|失败| L7[上层回退 local 模板]
   end
 
   %% ==============
@@ -248,12 +276,14 @@ flowchart TD
   FE2 --> API0
   API8 --> G0
   G3 --> L0
+  G12 --> API9
 ```
 
 ### “题目”和“答案”是怎么生成的
 
-- “多套测试题目”对应 `count` 个变体（`A/B/C...`），在 `app/api/generate/route.ts` 里按顺序循环生成；每个变体会在 SSE 中单独以 `status:"variant"` 推送给前端。
-- 每个变体的“题目”由 `questions` 字段表示：固定 8 题，每题固定 4 个选项；选项中包含 `score`（分值）。
+- “多套测试题目”对应 `count` 个变体，在 `app/api/generate/route.ts` 中先按 `count` 从 5 种风格无重复抽样，再逐个生成并通过 SSE 推送。
+- 每个变体的“题目”由 `questions` 字段表示，但不再固定 8 题；题目数量与结构由风格决定（例如图像投射型 1 题、剧情型 5 题、依恋指数型 10 题等）。
 - 每个变体的“答案”对应 `results`（固定 4 张结果卡）：包含 `title/description/cta`，以及 `scoreRange`（分数区间）。
 - 导出的独立 HTML 里会把用户每题选择的 `score` 进行累加得到总分 `score`，再按 `results[*].scoreRange` 匹配落在哪个区间来展示对应结果卡（见 `lib/export.ts: buildStandaloneHtml()` 的内嵌脚本逻辑）。
-- 当远程模型输出缺字段/格式不稳时，会走 `lib/prompts.ts: repairVariantPayload()` 做结构修复、字段兜底、规范化（确保最终一定是可用的 `TestVariant`）；若远程模型不可用/多次失败，会直接走 `generateLocalVariant()` 本地兜底生成。
+- 图像投射型会在文案生成后调用 `lib/image/nano-banana.ts` 请求 `https://grsai.dakka.com.cn/v1/draw/nano-banana` 生成图像 URL，并挂到 `variant.imageAssets`。
+- 当远程模型输出缺字段/格式不稳时，会走 `lib/prompts.ts: repairVariantPayload()` 做结构修复、字段兜底、规范化；若远程模型不可用/多次失败，会直接走 `generateLocalVariant()` 通用模板兜底。

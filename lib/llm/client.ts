@@ -14,10 +14,10 @@ interface GenerationResult {
 
 function resolveProviderOrder(preferred: LlmClientOptions["preferredProvider"]): LlmProviderName[] {
   if (preferred === "openai") {
-    return ["openai", "deepseek"];
+    return ["openai"];
   }
   if (preferred === "deepseek") {
-    return ["deepseek", "openai"];
+    return ["deepseek"];
   }
   return ["deepseek", "openai"];
 }
