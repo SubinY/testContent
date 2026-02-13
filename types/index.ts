@@ -92,8 +92,10 @@ export interface TestVariant {
   label: string;
   styleKey?: string;
   styleName?: string;
+  generationSource?: "remote" | "remote-rewrite" | "local-fallback" | "local-mode";
   textProvider?: "openai" | "deepseek" | "local";
   textModel?: string;
+  rawModelOutput?: string;
   imageProvider?: "nano-banana";
   imageModel?: string;
   headline: string;
@@ -127,7 +129,20 @@ export interface GeneratedTest {
   topic: string;
   createdAt: string;
   topicAnalysis?: TopicAnalysis;
+  debugTrace?: DebugEntry[];
   variants: TestVariant[];
+}
+
+export interface DebugEntry {
+  id: string;
+  at: string;
+  stage: string;
+  source: "api" | "llm" | "image" | "fallback" | "ui";
+  provider?: string;
+  model?: string;
+  variantLabel?: string;
+  message: string;
+  payload?: string;
 }
 
 export interface GenerateSseEventProgress {
@@ -153,10 +168,16 @@ export interface GenerateSseEventError {
   message: string;
 }
 
+export interface GenerateSseEventDebug {
+  status: "debug";
+  entry: DebugEntry;
+}
+
 export type LlmProviderSelection = "auto" | "openai" | "deepseek" | "local";
 
 export type GenerateSseEvent =
   | GenerateSseEventProgress
   | GenerateSseEventVariant
   | GenerateSseEventDone
+  | GenerateSseEventDebug
   | GenerateSseEventError;

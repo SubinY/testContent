@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { useParams, useRouter } from "next/navigation";
 
+import DebugFloatingPanel from "@/components/debug-floating-panel";
 import ExportPanel from "@/components/export-panel";
 import PhoneMockup from "@/components/phone-mockup";
 import TestRenderer from "@/components/test-renderer";
@@ -15,6 +16,7 @@ import { useTestStore } from "@/store/testStore";
 import type { GeneratedTest } from "@/types";
 
 export default function PreviewPage() {
+  const showAuxControls = process.env.NEXT_PUBLIC_SHOW_AUX_CONTROLS !== "false";
   const router = useRouter();
   const params = useParams<{ testId: string }>();
   const routeTestId = Array.isArray(params?.testId) ? params?.testId[0] : params?.testId;
@@ -134,9 +136,9 @@ export default function PreviewPage() {
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.35 }}
-        className="grid gap-5 xl:grid-cols-[0.9fr_1.2fr_0.9fr]"
+        className="grid gap-5 xl:grid-cols-[minmax(320px,0.9fr)_minmax(420px,1.2fr)_minmax(300px,0.9fr)]"
       >
-        <div className="space-y-4">
+        <div className="space-y-4 min-w-0">
           <VariantTabs
             variants={mountedTest.variants}
             activeVariantId={selectedVariant.id}
@@ -158,6 +160,13 @@ export default function PreviewPage() {
           onExportZip={handleExportZip}
         />
       </motion.section>
+      {showAuxControls ? (
+        <DebugFloatingPanel
+          entries={mountedTest.debugTrace ?? []}
+          variants={mountedTest.variants}
+          title="预览调试面板"
+        />
+      ) : null}
     </main>
   );
 }

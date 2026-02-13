@@ -14,7 +14,7 @@ import {
   type AssessmentStyle
 } from "@/lib/prompts";
 import { buildTopicAnalysis } from "@/lib/topic-deconstruction";
-import type { GeneratedTest, GenerateSseEvent, LlmProviderSelection, TestVariant } from "@/types";
+import type { DebugEntry, GeneratedTest, GenerateSseEvent, LlmProviderSelection, TestVariant } from "@/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,6 +23,8 @@ const requestSchema = z.object({
   topic: z.string().trim().min(2).max(120),
   count: z.number().int().min(1).max(5),
   enableImageVariants: z.boolean().optional(),
+  strictRemote: z.boolean().optional(),
+  qualityGateEnabled: z.boolean().optional(),
   provider: z.enum(["auto", "openai", "deepseek", "local"]).optional()
 });
 
@@ -36,6 +38,98 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
+}
+
+function createDebugEntry(input: Omit<DebugEntry, "id" | "at">): DebugEntry {
+  return {
+    id: crypto.randomUUID(),
+    at: new Date().toISOString(),
+    ...input
+  };
+}
+
+function tokenize(text: string): string[] {
+  return Array.from(
+    new Set((text.toLowerCase().match(/[\u4e00-\u9fa5a-z0-9]{2,}/g) ?? []).filter((item) => item.length >= 2))
+  );
+}
+
+function jaccardSimilarity(left: string, right: string): number {
+  const leftSet = new Set(tokenize(left));
+  const rightSet = new Set(tokenize(right));
+  if (leftSet.size === 0 || rightSet.size === 0) {
+    return 0;
+  }
+  let intersection = 0;
+  leftSet.forEach((item) => {
+    if (rightSet.has(item)) {
+      intersection += 1;
+    }
+  });
+  const union = leftSet.size + rightSet.size - intersection;
+  return union === 0 ? 0 : intersection / union;
+}
+
+function includesTopicAnchor(text: string, topic: string): boolean {
+  if (text.includes(topic)) {
+    return true;
+  }
+  const topicTokens = tokenize(topic);
+  if (topicTokens.length === 0) {
+    return false;
+  }
+  return topicTokens.some((token) => text.includes(token));
+}
+
+function validateVariantQuality(params: {
+  variant: TestVariant;
+  topic: string;
+  existingQuestionTitles: string[];
+}): string[] {
+  const { variant, topic, existingQuestionTitles } = params;
+  const errors: string[] = [];
+  const titles = variant.questions.map((item) => item.title.trim());
+
+  variant.questions.forEach((question, questionIndex) => {
+    const combined = `${question.title} ${question.subtitle ?? ""} ${question.options.map((option) => option.text).join(" ")}`;
+    if (!includesTopicAnchor(combined, topic)) {
+      errors.push(`第${questionIndex + 1}题与主题关联弱`);
+    }
+
+    for (let optionIndex = 0; optionIndex < question.options.length; optionIndex += 1) {
+      for (let next = optionIndex + 1; next < question.options.length; next += 1) {
+        const similarity = jaccardSimilarity(question.options[optionIndex].text, question.options[next].text);
+        if (similarity > 0.8) {
+          errors.push(`第${questionIndex + 1}题选项区分度不足`);
+          break;
+        }
+      }
+    }
+  });
+
+  for (let index = 0; index < titles.length; index += 1) {
+    for (let next = index + 1; next < titles.length; next += 1) {
+      if (jaccardSimilarity(titles[index], titles[next]) > 0.72) {
+        errors.push("同一变体题目过于相似");
+      }
+    }
+  }
+
+  titles.forEach((title) => {
+    if (existingQuestionTitles.some((existing) => jaccardSimilarity(existing, title) > 0.72)) {
+      errors.push("与已有变体题目过于相似");
+    }
+  });
+
+  for (let index = 0; index < variant.results.length; index += 1) {
+    for (let next = index + 1; next < variant.results.length; next += 1) {
+      if (jaccardSimilarity(variant.results[index].description, variant.results[next].description) > 0.75) {
+        errors.push("结果卡描述过于相似");
+      }
+    }
+  }
+
+  return Array.from(new Set(errors));
 }
 
 function applyTopicSafetyGuard(variant: TestVariant, topicAnalysis: GeneratedTest["topicAnalysis"]): TestVariant {
@@ -91,21 +185,71 @@ async function createVariantWithProvider(params: {
   forceLocal: boolean;
   imageClient: NanoBananaClient;
   topicAnalysis: GeneratedTest["topicAnalysis"];
+  existingQuestionTitles: string[];
+  strictRemote: boolean;
+  qualityGateEnabled: boolean;
+  onDebug: (entry: DebugEntry) => void;
+  enableImageVariants: boolean;
 }): Promise<TestVariant> {
-  const { client, topic, label, style, variantIndex, forceLocal, imageClient, topicAnalysis } = params;
+  const {
+    client,
+    topic,
+    label,
+    style,
+    variantIndex,
+    forceLocal,
+    imageClient,
+    topicAnalysis,
+    existingQuestionTitles,
+    strictRemote,
+    qualityGateEnabled,
+    enableImageVariants
+  } = params;
   const imageModel = process.env.NANO_BANANA_MODEL ?? "nano-banana-fast";
+  const { onDebug } = params;
 
   const withImageMeta = async (base: TestVariant): Promise<TestVariant> => {
+    if (!enableImageVariants || !style.requiresImage) {
+      return {
+        ...base,
+        imagePrompt: undefined,
+        imageAssets: undefined,
+        imageProvider: undefined,
+        imageModel: undefined
+      };
+    }
     const imagePrompt = base.imagePrompt ?? buildNanoBananaPrompt(topic, style);
     if (!imagePrompt || !imageClient.isAvailable()) {
       return base;
     }
+    onDebug(
+      createDebugEntry({
+        source: "image",
+        stage: "image-generate-start",
+        provider: "nano-banana",
+        model: imageModel,
+        variantLabel: label,
+        message: "开始请求图像生成",
+        payload: imagePrompt
+      })
+    );
     try {
       const imageUrl = await imageClient.generate({
         prompt: imagePrompt,
         aspectRatio: base.imageAspectRatio,
         timeoutMs: 60_000
       });
+      onDebug(
+        createDebugEntry({
+          source: "image",
+          stage: "image-generate-success",
+          provider: "nano-banana",
+          model: imageModel,
+          variantLabel: label,
+          message: imageUrl ? "图像生成成功" : "图像接口无返回URL",
+          payload: imageUrl ?? ""
+        })
+      );
       const withImage = attachGeneratedImage(base, imageUrl, imagePrompt);
       if (!imageUrl) {
         return withImage;
@@ -116,43 +260,142 @@ async function createVariantWithProvider(params: {
         imageModel
       };
     } catch {
+      onDebug(
+        createDebugEntry({
+          source: "image",
+          stage: "image-generate-error",
+          provider: "nano-banana",
+          model: imageModel,
+          variantLabel: label,
+          message: "图像生成失败，继续文本结果",
+          payload: imagePrompt
+        })
+      );
       return base;
     }
   };
 
   if (forceLocal || !client.hasRemoteProvider()) {
+    if (strictRemote) {
+      throw new Error("strictRemote 已开启：远程模型不可用，已阻止本地兜底。");
+    }
     const localVariant = generateLocalVariant(topic, label, variantIndex, style);
     const withMeta: TestVariant = {
       ...localVariant,
+      generationSource: "local-mode",
       textProvider: "local",
-      textModel: "local-template"
+      textModel: "local-template",
+      rawModelOutput: "[local-mode]"
     };
+    onDebug(
+      createDebugEntry({
+        source: "fallback",
+        stage: "local-mode",
+        provider: "local",
+        model: "local-template",
+        variantLabel: label,
+        message: "使用本地模板生成",
+        payload: withMeta.rawModelOutput
+      })
+    );
     return applyTopicSafetyGuard(await withImageMeta(withMeta), topicAnalysis);
   }
 
   let lastError: unknown = null;
+  let feedback = "";
   for (let attempt = 1; attempt <= 3; attempt += 1) {
     try {
+      onDebug(
+        createDebugEntry({
+          source: "llm",
+          stage: "llm-request",
+          provider: "deepseek|openai",
+          variantLabel: label,
+          message: `开始第 ${attempt} 次文本生成`,
+          payload: feedback || "无重写反馈"
+        })
+      );
       const response = await client.generate({
         systemPrompt: buildSystemPrompt(label, style, topicAnalysis ?? buildTopicAnalysis(topic)),
-        userPrompt: buildUserPrompt(topic, label, style, topicAnalysis ?? buildTopicAnalysis(topic)),
-        timeoutMs: 30_000
+        userPrompt: buildUserPrompt(topic, label, style, topicAnalysis ?? buildTopicAnalysis(topic), {
+          avoidQuestionTitles: existingQuestionTitles,
+          qualityFeedback: feedback
+        }),
+        timeoutMs: 600_000
       });
+      onDebug(
+        createDebugEntry({
+          source: "llm",
+          stage: "llm-response",
+          provider: response.provider,
+          model: response.model,
+          variantLabel: label,
+          message: `收到模型返回（第 ${attempt} 次）`,
+          payload: response.content
+        })
+      );
       const parsedPayload = parseModelJson(response.content);
       const repaired = repairVariantPayload(parsedPayload, {
         topic,
         label,
         variantIndex,
-        style
+        style,
+        fallbackMode: "minimal"
       });
+      if (qualityGateEnabled) {
+        const qualityErrors = validateVariantQuality({
+          variant: repaired,
+          topic,
+          existingQuestionTitles
+        });
+        if (qualityErrors.length > 0) {
+          feedback = qualityErrors.join("；");
+          onDebug(
+            createDebugEntry({
+              source: "llm",
+              stage: "quality-rewrite",
+              provider: response.provider,
+              model: response.model,
+              variantLabel: label,
+              message: "质量门控未通过，触发重写",
+              payload: feedback
+            })
+          );
+          throw new Error(`质量校验失败：${feedback}`);
+        }
+      } else {
+        onDebug(
+          createDebugEntry({
+            source: "llm",
+            stage: "quality-gate-skipped",
+            provider: response.provider,
+            model: response.model,
+            variantLabel: label,
+            message: "质量门控已关闭，跳过校验",
+            payload: ""
+          })
+        );
+      }
       const withMeta: TestVariant = {
         ...repaired,
+        generationSource: attempt === 1 ? "remote" : "remote-rewrite",
         textProvider: response.provider,
-        textModel: response.model
+        textModel: response.model,
+        rawModelOutput: response.content
       };
       return applyTopicSafetyGuard(await withImageMeta(withMeta), topicAnalysis);
     } catch (error) {
       lastError = error;
+      onDebug(
+        createDebugEntry({
+          source: "llm",
+          stage: "llm-error",
+          provider: "deepseek|openai",
+          variantLabel: label,
+          message: `第 ${attempt} 次生成失败`,
+          payload: error instanceof Error ? error.message : "unknown-error"
+        })
+      );
       if (attempt < 3) {
         await delay(attempt * 500);
       }
@@ -160,19 +403,50 @@ async function createVariantWithProvider(params: {
   }
 
   if (lastError) {
+    if (strictRemote) {
+      throw lastError instanceof Error
+        ? new Error(`strictRemote 已开启：远程生成失败（${lastError.message}）`)
+        : new Error("strictRemote 已开启：远程生成失败。");
+    }
     const localFallback: TestVariant = {
       ...generateLocalVariant(topic, label, variantIndex, style),
+      generationSource: "local-fallback",
       textProvider: "local",
-      textModel: "local-template"
+      textModel: "local-template",
+      rawModelOutput: `[local-fallback] ${lastError instanceof Error ? lastError.message : "unknown"}`
     };
+    onDebug(
+      createDebugEntry({
+        source: "fallback",
+        stage: "local-fallback",
+        provider: "local",
+        model: "local-template",
+        variantLabel: label,
+        message: "远程失败后回退本地模板",
+        payload: localFallback.rawModelOutput
+      })
+    );
     return applyTopicSafetyGuard(await withImageMeta(localFallback), topicAnalysis);
   }
 
   const defaultFallback: TestVariant = {
     ...generateLocalVariant(topic, label, variantIndex, style),
+    generationSource: "local-fallback",
     textProvider: "local",
-    textModel: "local-template"
+    textModel: "local-template",
+    rawModelOutput: "[local-fallback] no-remote-result"
   };
+  onDebug(
+    createDebugEntry({
+      source: "fallback",
+      stage: "local-fallback-default",
+      provider: "local",
+      model: "local-template",
+      variantLabel: label,
+      message: "触发默认本地回退",
+      payload: defaultFallback.rawModelOutput
+    })
+  );
   return applyTopicSafetyGuard(await withImageMeta(defaultFallback), topicAnalysis);
 }
 
@@ -186,9 +460,14 @@ export async function POST(request: Request): Promise<Response> {
 
   const { topic, count } = parsedBody.data;
   const enableImageVariants = parsedBody.data.enableImageVariants ?? true;
+  const strictRemote = parsedBody.data.strictRemote ?? false;
+  const qualityGateEnabled = parsedBody.data.qualityGateEnabled ?? true;
   const requestedProvider = parsedBody.data.provider ?? getPreferredProviderFromEnv();
   const provider: LlmProviderSelection = requestedProvider;
   const forceLocal = provider === "local";
+  if (strictRemote && forceLocal) {
+    return Response.json({ message: "strictRemote 开启时不允许使用 local provider。" }, { status: 400 });
+  }
   const maxCount = getAvailableStyleCount(enableImageVariants);
   if (count > maxCount) {
     return Response.json({ message: `当前设置下最多只能生成 ${maxCount} 个变体。` }, { status: 400 });
@@ -208,6 +487,16 @@ export async function POST(request: Request): Promise<Response> {
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       try {
+        const debugTrace: DebugEntry[] = [];
+        const pushDebug = (entry: DebugEntry) => {
+          debugTrace.push(entry);
+          controller.enqueue(
+            toSseChunk({
+              status: "debug",
+              entry
+            })
+          );
+        };
         controller.enqueue(
           toSseChunk({
             status: "progress",
@@ -232,6 +521,7 @@ export async function POST(request: Request): Promise<Response> {
         );
 
         const variants: TestVariant[] = [];
+        const existingQuestionTitles: string[] = [];
         for (let index = 0; index < count; index += 1) {
           const picked = sampledStyles[index];
           const label = picked?.label ?? String.fromCharCode(65 + index);
@@ -256,10 +546,19 @@ export async function POST(request: Request): Promise<Response> {
             variantIndex: index,
             forceLocal,
             imageClient,
-            topicAnalysis
+            topicAnalysis,
+            existingQuestionTitles,
+            strictRemote,
+            qualityGateEnabled,
+            onDebug: pushDebug
+            ,
+            enableImageVariants
           });
 
           variants.push(variant);
+          variant.questions.forEach((item) => {
+            existingQuestionTitles.push(item.title);
+          });
 
           controller.enqueue(
             toSseChunk({
@@ -284,6 +583,7 @@ export async function POST(request: Request): Promise<Response> {
           topic,
           createdAt: new Date().toISOString(),
           topicAnalysis,
+          debugTrace,
           variants
         };
 

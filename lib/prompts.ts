@@ -352,7 +352,22 @@ ${buildTopicAnalysisPromptBlock(topicAnalysis)}
 `.trim();
 }
 
-export function buildUserPrompt(topic: string, label: string, style: AssessmentStyle, topicAnalysis: TopicAnalysis): string {
+export function buildUserPrompt(
+  topic: string,
+  label: string,
+  style: AssessmentStyle,
+  topicAnalysis: TopicAnalysis,
+  options?: {
+    avoidQuestionTitles?: string[];
+    qualityFeedback?: string;
+  }
+): string {
+  const avoidText =
+    options?.avoidQuestionTitles && options.avoidQuestionTitles.length > 0
+      ? `\n额外约束：本变体题目不得与以下题目高度相似：${options.avoidQuestionTitles.join("｜")}`
+      : "";
+  const feedbackText = options?.qualityFeedback ? `\n上一次输出问题：${options.qualityFeedback}` : "";
+
   return `
 主题：${topic}
 变体：${label}（${style.name}）
@@ -365,6 +380,10 @@ export function buildUserPrompt(topic: string, label: string, style: AssessmentS
 3. results 固定 4 张卡片，并提供 scoreRange。
 4. 全中文表达，场景化、第二人称、可传播。
 5. 非临床、非诊断表达。
+6. 每道题都必须和主题“${topic}”直接相关，但题目之间不要同义改写。
+7. 同一题的选项必须可区分，不能只改几个字。
+${avoidText}
+${feedbackText}
 
 返回纯 JSON：
 ${JSON.stringify(GENERATION_JSON_SCHEMA)}
@@ -724,9 +743,15 @@ export function parseModelJson(raw: string): unknown {
 
 export function repairVariantPayload(
   payload: unknown,
-  params: { topic: string; label: string; variantIndex: number; style: AssessmentStyle }
+  params: {
+    topic: string;
+    label: string;
+    variantIndex: number;
+    style: AssessmentStyle;
+    fallbackMode?: "full" | "minimal";
+  }
 ): TestVariant {
-  const { topic, label, variantIndex, style } = params;
+  const { topic, label, variantIndex, style, fallbackMode = "full" } = params;
   const safePayload = payload && typeof payload === "object" ? (payload as Record<string, unknown>) : {};
   const parsed = generatedVariantSchema.safeParse(safePayload);
   const source = parsed.success ? parsed.data : safePayload;
@@ -737,8 +762,10 @@ export function repairVariantPayload(
   const coverTitle = safeText(source.coverTitle, `${topic}：${style.name} 测评`);
   const coverSubtitle = safeText(source.coverSubtitle, `${style.questionCount} 道题，快速得到你的结果画像。`);
 
-  const questions = normalizeQuestions(source.questions, topic, label, style);
-  const results = normalizeResults(source.results, topic, style, questions.length);
+  const questions =
+    fallbackMode === "minimal" ? normalizeQuestionsMinimal(source.questions, topic, label, style) : normalizeQuestions(source.questions, topic, label, style);
+  const results =
+    fallbackMode === "minimal" ? normalizeResultsMinimal(source.results, topic, style, questions.length) : normalizeResults(source.results, topic, style, questions.length);
   const hashtags = normalizeList(source.hashtags, [
     `#${topic.replace(/\s+/g, "")}`,
     "#心理测试",
@@ -760,7 +787,9 @@ export function repairVariantPayload(
   ]);
   const copyHashtags = normalizeList((copyPackage as Record<string, unknown>).hashtags, hashtags);
   const copyDmScripts = normalizeList((copyPackage as Record<string, unknown>).dmScripts, dmScripts);
-  const imagePrompt = safeText(source.imagePrompt, buildNanoBananaPrompt(topic, style) ?? "");
+  const imagePrompt = style.requiresImage
+    ? safeText(source.imagePrompt, buildNanoBananaPrompt(topic, style) ?? "")
+    : "";
   const imageAspectRatio = safeText(source.imageAspectRatio, style.imageAspectRatio);
 
   return {
@@ -787,6 +816,72 @@ export function repairVariantPayload(
       dmScripts: copyDmScripts
     }
   };
+}
+
+function normalizeQuestionsMinimal(input: unknown, topic: string, label: string, style: AssessmentStyle): TestQuestion[] {
+  const list = Array.isArray(input) ? input : [];
+  const questions: TestQuestion[] = [];
+
+  for (let index = 0; index < style.questionCount; index += 1) {
+    const raw = list[index] as Record<string, unknown> | undefined;
+    const title = safeText(raw?.title, `围绕“${topic}”的${style.name}问题 ${index + 1}`);
+    const subtitle = safeText(raw?.subtitle, "请根据你的直觉和真实行为倾向作答。");
+    const dimension = safeText(raw?.dimension, style.name);
+    const optionsRaw = Array.isArray(raw?.options) ? raw.options : [];
+    const options: TestOption[] = [];
+
+    for (let optionIndex = 0; optionIndex < style.optionCount; optionIndex += 1) {
+      const optionRaw = optionsRaw[optionIndex] as Record<string, unknown> | undefined;
+      const optionText = safeText(optionRaw?.text, `与“${topic}”相关的倾向选项 ${optionIndex + 1}`);
+      const score =
+        typeof optionRaw?.score === "number" && Number.isFinite(optionRaw.score)
+          ? clamp(Math.floor(optionRaw.score), 1, 4)
+          : Math.max(1, 4 - optionIndex);
+      options.push({
+        id: `q${index + 1}-o${optionIndex + 1}`,
+        text: optionText,
+        scoreKey: dimension,
+        score,
+        scoreVector: parseScoreVector(optionRaw?.scoreVector)
+      });
+    }
+
+    questions.push({
+      id: `q-${index + 1}`,
+      title,
+      subtitle,
+      dimension,
+      options
+    });
+  }
+
+  return questions;
+}
+
+function normalizeResultsMinimal(input: unknown, topic: string, style: AssessmentStyle, totalQuestions: number): TestResult[] {
+  const list = Array.isArray(input) ? input : [];
+  const defaultRanges = splitRanges(totalQuestions);
+
+  return Array.from({ length: 4 }, (_, index) => {
+    const raw = list[index] as Record<string, unknown> | undefined;
+    const rawRange = Array.isArray(raw?.scoreRange) ? raw?.scoreRange : undefined;
+    const range: [number, number] =
+      rawRange &&
+      rawRange.length === 2 &&
+      typeof rawRange[0] === "number" &&
+      typeof rawRange[1] === "number" &&
+      rawRange[0] <= rawRange[1]
+        ? [Math.floor(rawRange[0]), Math.floor(rawRange[1])]
+        : defaultRanges[index] ?? [1, totalQuestions * 4];
+
+    return {
+      id: safeText(raw?.id, `result-${index + 1}`),
+      title: safeText(raw?.title, `${style.name}结果 ${index + 1}`),
+      description: safeText(raw?.description, `你在“${topic}”上的表现更接近该结果类型。`),
+      cta: safeText(raw?.cta, "保存结果并对比不同变体。"),
+      scoreRange: range
+    };
+  });
 }
 
 export function generateLocalVariant(

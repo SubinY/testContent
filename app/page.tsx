@@ -4,10 +4,11 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { useRouter } from "next/navigation";
 
+import DebugFloatingPanel from "@/components/debug-floating-panel";
 import { buildMockGeneratedTest } from "@/lib/mock-test";
 import { saveGeneratedTest, saveLatestTestId } from "@/lib/storage";
 import { useTestStore } from "@/store/testStore";
-import type { GenerateSseEvent, GeneratedTest, LlmProviderSelection } from "@/types";
+import type { DebugEntry, GenerateSseEvent, GeneratedTest, LlmProviderSelection } from "@/types";
 
 const MIN_COUNT = 1;
 const MAX_COUNT = 5;
@@ -22,13 +23,16 @@ const PROVIDER_LABELS: Record<LlmProviderSelection, string> = {
 type RunMode = "api" | "local";
 
 export default function HomePage() {
+  const showAuxControls = process.env.NEXT_PUBLIC_SHOW_AUX_CONTROLS !== "false";
   const router = useRouter();
   const [topic, setTopic] = useState("");
   const [count, setCount] = useState(3);
   const [provider, setProvider] = useState<LlmProviderSelection>("auto");
-  const [runMode, setRunMode] = useState<RunMode>("api");
-  const [enableImageVariants, setEnableImageVariants] = useState(true);
+  const [runMode, setRunMode] = useState<RunMode>("local");
+  const [enableImageVariants, setEnableImageVariants] = useState(false);
+  const [qualityGateEnabled, setQualityGateEnabled] = useState(false);
   const [errorText, setErrorText] = useState("");
+  const [debugEntries, setDebugEntries] = useState<DebugEntry[]>([]);
   const maxCount = enableImageVariants ? MAX_COUNT : MAX_COUNT_WITHOUT_IMAGE;
 
   const {
@@ -73,6 +77,7 @@ export default function HomePage() {
     }
 
     setErrorText("");
+    setDebugEntries([]);
     setGenerating(true);
     setProgress(4, "请求已提交。");
     addStreamEvent("请求已提交。");
@@ -82,6 +87,7 @@ export default function HomePage() {
         setProgress(12, "使用本地模板生成中。");
         addStreamEvent("本地模板模式：不调用远程 API。");
         const test = buildMockGeneratedTest(topic.trim(), count, { enableImageVariants });
+        setDebugEntries(test.debugTrace ?? []);
         saveGeneratedTest(test);
         saveLatestTestId(test.id);
         setCurrentTest(test);
@@ -100,6 +106,8 @@ export default function HomePage() {
           topic: topic.trim(),
           count,
           enableImageVariants,
+          strictRemote: true,
+          qualityGateEnabled,
           provider
         })
       });
@@ -139,6 +147,10 @@ export default function HomePage() {
               addStreamEvent(`变体 ${eventData.variant.label} 已生成。`);
             }
 
+            if (eventData.status === "debug") {
+              setDebugEntries((current) => [...current, eventData.entry].slice(-200));
+            }
+
             if (eventData.status === "done") {
               const test = eventData.test as GeneratedTest;
               saveGeneratedTest(test);
@@ -176,6 +188,7 @@ export default function HomePage() {
         className="grid gap-6 lg:grid-cols-[1.15fr_0.85fr]"
       >
         <article className="card-surface relative p-6 md:p-8">
+          {showAuxControls ? (
           <div className="absolute right-6 top-6 flex items-center gap-2 md:right-8 md:top-8">
             <div className="inline-flex h-8 overflow-hidden rounded-full border border-slate-300 bg-white">
               <button
@@ -215,7 +228,22 @@ export default function HomePage() {
               <span>图像变体</span>
               <span>{enableImageVariants ? "开" : "关"}</span>
             </button>
+            <button
+              type="button"
+              onClick={() => setQualityGateEnabled((value) => !value)}
+              className={[
+                "inline-flex h-8 items-center gap-2 rounded-full border px-3 text-xs font-semibold transition-all",
+                qualityGateEnabled
+                  ? "border-emerald-300 bg-emerald-50 text-emerald-800"
+                  : "border-slate-300 bg-white text-slate-600"
+              ].join(" ")}
+              title="关闭后跳过主题一致性与去相似质量门控"
+            >
+              <span>质量门控</span>
+              <span>{qualityGateEnabled ? "开" : "关"}</span>
+            </button>
           </div>
+          ) : null}
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">TestFlow V1</p>
           <h1 className="mt-2 text-4xl font-semibold leading-tight text-slate-900 md:text-5xl">
             输入主题，快速生成
@@ -269,7 +297,7 @@ export default function HomePage() {
               />
             </label>
 
-            {runMode === "api" ? (
+            {runMode === "api" && showAuxControls ? (
               <label className="grid gap-2">
                 <span className="text-sm font-semibold text-slate-700">模型提供方</span>
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -290,12 +318,12 @@ export default function HomePage() {
                   ))}
                 </div>
               </label>
-            ) : (
+            ) : runMode !== "api" && showAuxControls ? (
               <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
                 本地测试模式：使用预置模板，不调用文本/图像远程 API。
                 {!enableImageVariants ? " 当前已关闭图像变体。" : ""}
               </div>
-            )}
+            ) : null}
 
             <button type="submit" className="btn-primary disabled:cursor-not-allowed disabled:opacity-60" disabled={!canSubmit}>
               {isGenerating ? "测试中..." : runMode === "api" ? "开始测试" : "开始本地测试"}
@@ -342,6 +370,7 @@ export default function HomePage() {
           ) : null}
         </aside>
       </motion.section>
+      {showAuxControls ? <DebugFloatingPanel entries={debugEntries} title="首页调试面板" /> : null}
     </main>
   );
 }

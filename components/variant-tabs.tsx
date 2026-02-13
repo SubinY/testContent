@@ -62,7 +62,7 @@ export default function VariantTabs(props: VariantTabsProps) {
                   href={imageUrl}
                   target="_blank"
                   rel="noreferrer"
-                  className="mt-2 block truncate text-xs font-medium text-sky-700 underline underline-offset-2 hover:text-sky-800"
+                  className="mt-2 block break-all text-xs font-medium text-sky-700 underline underline-offset-2 hover:text-sky-800"
                   title={imageUrl}
                 >
                   Image URL: {imageUrl}
