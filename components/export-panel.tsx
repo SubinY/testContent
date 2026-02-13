@@ -16,7 +16,7 @@ export default function ExportPanel(props: ExportPanelProps) {
       <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">导出</p>
       <h3 className="mt-2 text-lg font-semibold text-slate-900">导出素材包</h3>
       <p className="mt-1 text-sm leading-6 text-slate-600">
-        支持导出独立 HTML、1080x1440 截图，以及完整 ZIP 包，便于投放和分发。
+        支持导出独立 HTML、1080x1440（3:4）截图，以及完整 ZIP 包，便于小红书投放和分发。
       </p>
 
       <div className="mt-4 grid gap-3">

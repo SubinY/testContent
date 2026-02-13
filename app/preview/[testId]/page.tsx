@@ -15,6 +15,14 @@ import { loadGeneratedTest } from "@/lib/storage";
 import { useTestStore } from "@/store/testStore";
 import type { GeneratedTest } from "@/types";
 
+const PREVIEW_PRESETS: Array<{ id: string; label: string; width: number; height: number; hint?: string }> = [
+  { id: "xhs", label: "小红书 3:4", width: 360, height: 480, hint: "导出截图为 1080×1440（3:4）" },
+  { id: "iphone-se", label: "iPhone SE", width: 375, height: 667 },
+  { id: "iphone-14", label: "iPhone 14", width: 390, height: 844 },
+  { id: "iphone-max", label: "iPhone 14 Pro Max", width: 430, height: 932 },
+  { id: "android", label: "Android", width: 412, height: 915 }
+];
+
 export default function PreviewPage() {
   const showAuxControls = process.env.NEXT_PUBLIC_SHOW_AUX_CONTROLS !== "false";
   const router = useRouter();
@@ -24,6 +32,7 @@ export default function PreviewPage() {
   const [mountedTest, setMountedTest] = useState<GeneratedTest | null>(null);
   const [statusText, setStatusText] = useState("准备导出。");
   const [exporting, setExporting] = useState(false);
+  const [presetId, setPresetId] = useState(PREVIEW_PRESETS[0].id);
 
   const { currentTest, activeVariantId, setCurrentTest, setActiveVariant } = useTestStore();
 
@@ -69,6 +78,11 @@ export default function PreviewPage() {
     }
     return buildStandaloneHtml(selectedVariant);
   }, [selectedVariant]);
+
+  const activePreset = useMemo(
+    () => PREVIEW_PRESETS.find((item) => item.id === presetId) ?? PREVIEW_PRESETS[0],
+    [presetId]
+  );
 
   if (!mountedTest || !selectedVariant) {
     return (
@@ -147,9 +161,34 @@ export default function PreviewPage() {
           <TestRenderer variant={selectedVariant} topicAnalysis={mountedTest.topicAnalysis} />
         </div>
 
-        <section className="card-surface p-4 md:p-6">
-          <p className="mb-3 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">手机预览</p>
-          <PhoneMockup html={htmlContent} title={`${mountedTest.topic}-${selectedVariant.label}`} />
+        <section className="card-surface relative p-4 md:p-6">
+          <div className="mb-3 flex items-center justify-between">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">手机预览</p>
+            <div className="flex items-center gap-2">
+              <label htmlFor="preview-preset" className="text-[11px] font-semibold text-slate-500">
+                分辨率
+              </label>
+              <select
+                id="preview-preset"
+                value={presetId}
+                onChange={(event) => setPresetId(event.target.value)}
+                className="h-8 rounded-lg border border-slate-300 bg-white px-2 text-xs font-semibold text-slate-700 outline-none focus:border-amber-400"
+              >
+                {PREVIEW_PRESETS.map((preset) => (
+                  <option key={preset.id} value={preset.id}>
+                    {preset.label} ({preset.width}×{preset.height})
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+          {activePreset.hint ? <p className="mb-3 text-[11px] font-medium text-slate-500">{activePreset.hint}</p> : null}
+          <PhoneMockup
+            html={htmlContent}
+            title={`${mountedTest.topic}-${selectedVariant.label}`}
+            viewportWidth={activePreset.width}
+            viewportHeight={activePreset.height}
+          />
         </section>
 
         <ExportPanel

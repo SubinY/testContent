@@ -5,8 +5,8 @@
 - SSE 流式生成（逐变体返回）
 - 预览多变体（按请求 `count` 抽样风格）
 - 导出独立 HTML
-- 导出 1080x1440 截图包
-- 导出完整 ZIP（HTML + 截图 + 文案素材）
+- 导出 1080x1440（3:4）截图包
+- 导出完整 ZIP（HTML + 截图 + 私信素材）
 
 ---
 
@@ -145,10 +145,7 @@ data: {"status":"error","message":"..."}
 
 - `index.html`
 - `/screenshots/*.png`
-- `/copy/titles.txt`
-- `/copy/content.txt`
-- `/copy/hashtags.txt`
-- `/copy/dm_scripts.json`
+- `/material/dm_scripts.json`
 - `README.txt`
 
 ---
