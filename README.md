@@ -31,7 +31,7 @@ npm run dev
 `.env.local` 示例：
 
 ```env
-# 模型选择：auto | openai | deepseek | local
+# 模型选择：auto | openai | deepseek | modelgate | local
 LLM_PROVIDER=auto
 
 # OpenAI
@@ -43,6 +43,18 @@ DEEPSEEK_API_KEY=
 DEEPSEEK_MODEL=deepseek-chat
 DEEPSEEK_BASE_URL=https://api.deepseek.com/v1
 
+# ModelGate（文字，OpenAI 兼容）
+MODELGATE_API_KEY=
+MODELGATE_BASE_URL=https://mg.aid.pub/v1
+MODELGATE_MODEL=gpt-4
+
+# ModelGate（图像）
+MODELGATE_IMAGE_API_KEY=
+MODELGATE_IMAGE_URL=https://mg.aid.pub/api/v1/images/generations
+MODELGATE_IMAGE_MODEL=Nano-Banana
+MODELGATE_IMAGE_SIZE=1024x1024
+MODELGATE_IMAGE_OUTPUT_FORMAT=png
+
 # Nano Banana（图像生成）
 NANO_BANANA_API_KEY=
 NANO_BANANA_BASE_URL=https://grsai.dakka.com.cn
@@ -50,6 +62,11 @@ NANO_BANANA_MODEL=nano-banana-fast
 NANO_BANANA_ASPECT_RATIO=auto
 NANO_BANANA_IMAGE_SIZE=1K
 ```
+
+ModelGate 说明：
+- 官网与模型列表：`https://modelgate.net/models`
+- 文字端点（OpenAI 兼容）：`https://mg.aid.pub/v1`
+- 图像端点：`https://mg.aid.pub/api/v1/images/generations`
 
 ---
 
@@ -65,9 +82,10 @@ NANO_BANANA_IMAGE_SIZE=1K
 
 ### 3.2 选择策略
 
-- `auto`：优先 DeepSeek，失败切 OpenAI，再失败走 local 生成
+- `auto`：优先 ModelGate，失败切 DeepSeek，再切 OpenAI，最后走 local 生成
 - `openai`：仅使用 OpenAI；失败时不切换 DeepSeek，直接走 local 兜底
 - `deepseek`：仅使用 DeepSeek；失败时不切换 OpenAI，直接走 local 兜底
+- `modelgate`：仅使用 ModelGate；失败时按上层策略处理（strictRemote 下直接报错）
 - `local`：仅本地生成，不调用远程模型
 
 ### 3.3 每次请求动态指定 Provider
@@ -82,14 +100,14 @@ NANO_BANANA_IMAGE_SIZE=1K
 }
 ```
 
-`provider` 可选：`auto | openai | deepseek | local`
+`provider` 可选：`auto | openai | deepseek | modelgate | local`
 
 ### 3.4 风格抽样与结构差异化
 
 - 每次请求按 `count` 从 5 种风格中**无重复抽样**，不浪费 token
 - 5 种风格：图像投射型 / 场景剧情型 / 依恋指数型 / 人生潜力型 / 心理健康自评型
 - 每种风格有独立题目结构（题量与题干组织不同）
-- 图像投射型会追加调用 Nano Banana 生成核心视觉图（配置了 `NANO_BANANA_API_KEY` 时）
+- 图像投射型会追加调用图像生成接口：优先 ModelGate（已配置 `MODELGATE_IMAGE_*`），否则回退 Nano Banana
 
 ---
 
@@ -144,9 +162,9 @@ V4 迭代新增：
 - ZIP 内 `README.txt` 会记录当前主题与截图策略
 
 变体列表会显示每个变体实际调用来源：
-- `Text API`：`OPENAI / DEEPSEEK / LOCAL`
-- `Image API`：`NANO-BANANA / none`
-- 若使用了 Nano Banana，会附带可点击的 `Image URL` 便于检阅图片是否正确渲染
+- `Text API`：`MODELGATE / OPENAI / DEEPSEEK / LOCAL`
+- `Image API`：`MODELGATE / NANO-BANANA / none`
+- 若生成了图像，会附带可点击的 `Image URL` 便于检阅图片是否正确渲染
 
 完整 ZIP 内容：
 
@@ -191,7 +209,7 @@ npm run build
 
 ## 8. 端到端流程图（从输入主题开始）
 
-下面的流程图覆盖：输入测试主题 -> 风格抽样 -> 逐变体生成题目/答案 -> 图像风格调用 Nano Banana -> 预览 -> 导出 HTML/截图/ZIP。
+下面的流程图覆盖：输入测试主题 -> 风格抽样 -> 逐变体生成题目/答案 -> 图像风格调用（ModelGate 优先，Nano Banana 回退）-> 预览 -> 导出 HTML/截图/ZIP。
 
 ```mermaid
 flowchart TD
@@ -199,7 +217,7 @@ flowchart TD
   %% Frontend
   %% ==============
   subgraph FE[前端 /app]
-    FE1[用户输入: topic\n选择: count(1-5), provider(auto/openai/deepseek/local)] --> FE2[POST /api/generate]
+    FE1[用户输入: topic\n选择: count(1-5), provider(auto/modelgate/openai/deepseek/local)] --> FE2[POST /api/generate]
     FE2 --> FE3[读取 SSE: progress/variant/done/error]
     FE3 -->|variant 事件| FE4[更新生成日志/进度\n逐个收到变体结果]
     FE3 -->|done 事件| FE5[保存到 LocalStorage\nlib/storage.ts: saveGeneratedTest + saveLatestTestId]
@@ -214,7 +232,7 @@ flowchart TD
     API0[接收 JSON: {topic,count,provider}] --> API1[zod 校验参数\ntopic 2-120, count 1-5]
     API1 --> API2[决定 provider\n优先: 请求体 provider\n否则: env LLM_PROVIDER]
     API2 --> API2A[按 count 抽样风格\nsampleAssessmentStyles(count)]
-    API2A --> API3[构造 UnifiedLlmClient + NanoBananaClient]
+    API2A --> API3[构造 UnifiedLlmClient + ImageClient]
     API3 --> API4[开始 SSE Stream\nReadableStream]
 
     API4 --> API5{循环 index=0..count-1}
@@ -244,7 +262,7 @@ flowchart TD
     G8 --> G9[校验 schema (zod)\n题量可变(1~12) + 固定4结果卡]
     G9 --> G10[normalizeQuestions/Results\n按风格产出不同题目结构]
     G10 --> G11{style.requiresImage?}
-    G11 -->|是| G12[NanoBananaClient.generate()\n附加 imageAssets(url/prompt)]
+    G11 -->|是| G12[ModelGateImage/NanoBanana.generate()\n附加 imageAssets(url/prompt)]
     G11 -->|否| G13[直接返回变体]
   end
 
@@ -290,5 +308,6 @@ flowchart TD
 - 每个变体的“题目”由 `questions` 字段表示，但不再固定 8 题；题目数量与结构由风格决定（例如图像投射型 1 题、剧情型 5 题、依恋指数型 10 题等）。
 - 每个变体的“答案”对应 `results`（固定 4 张结果卡）：包含 `title/description/cta`，以及 `scoreRange`（分数区间）。
 - 导出的独立 HTML 里会把用户每题选择的 `score` 进行累加得到总分 `score`，再按 `results[*].scoreRange` 匹配落在哪个区间来展示对应结果卡（见 `lib/export.ts: buildStandaloneHtml()` 的内嵌脚本逻辑）。
-- 图像投射型会在文案生成后调用 `lib/image/nano-banana.ts` 请求 `https://grsai.dakka.com.cn/v1/draw/nano-banana` 生成图像 URL，并挂到 `variant.imageAssets`。
+- 图像投射型会在文案生成后调用图像客户端（`lib/image/modelgate.ts` 或 `lib/image/nano-banana.ts`）生成图像 URL，并挂到 `variant.imageAssets`。
 - 当远程模型输出缺字段/格式不稳时，会走 `lib/prompts.ts: repairVariantPayload()` 做结构修复、字段兜底、规范化；若远程模型不可用/多次失败，会直接走 `generateLocalVariant()` 通用模板兜底。
+

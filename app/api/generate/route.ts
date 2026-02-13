@@ -1,6 +1,8 @@
 import { z } from "zod";
 
-import { attachGeneratedImage, NanoBananaClient } from "@/lib/image/nano-banana";
+import { createImageClient } from "@/lib/image/client";
+import { attachGeneratedImage } from "@/lib/image/nano-banana";
+import type { ImageGenerateClient } from "@/lib/image/types";
 import { getPreferredProviderFromEnv, UnifiedLlmClient } from "@/lib/llm/client";
 import {
   buildNanoBananaPrompt,
@@ -26,7 +28,7 @@ const requestSchema = z.object({
   enableImageVariants: z.boolean().optional(),
   strictRemote: z.boolean().optional(),
   qualityGateEnabled: z.boolean().optional(),
-  provider: z.enum(["auto", "openai", "deepseek", "local"]).optional()
+  provider: z.enum(["auto", "openai", "deepseek", "modelgate", "local"]).optional()
 });
 
 const encoder = new TextEncoder();
@@ -184,7 +186,7 @@ async function createVariantWithProvider(params: {
   style: AssessmentStyle;
   variantIndex: number;
   forceLocal: boolean;
-  imageClient: NanoBananaClient;
+  imageClient: ImageGenerateClient | null;
   topicAnalysis: GeneratedTest["topicAnalysis"];
   existingQuestionTitles: string[];
   strictRemote: boolean;
@@ -208,7 +210,8 @@ async function createVariantWithProvider(params: {
     enableImageVariants,
     allowRemoteImage
   } = params;
-  const imageModel = process.env.NANO_BANANA_MODEL ?? "nano-banana-fast";
+  const imageProvider = imageClient?.provider ?? "none";
+  const imageModel = imageClient?.model ?? "none";
   const { onDebug } = params;
 
   const withImageMeta = async (base: TestVariant): Promise<TestVariant> => {
@@ -222,14 +225,25 @@ async function createVariantWithProvider(params: {
       };
     }
     const imagePrompt = base.imagePrompt ?? buildNanoBananaPrompt(topic, style);
-    if (!imagePrompt || !imageClient.isAvailable()) {
+    if (!imagePrompt || !imageClient) {
+      onDebug(
+        createDebugEntry({
+          source: "image",
+          stage: "image-generate-skipped",
+          provider: imageProvider,
+          model: imageModel,
+          variantLabel: label,
+          message: "图像生成已跳过：未配置可用图像提供方",
+          payload: imagePrompt ?? ""
+        })
+      );
       return base;
     }
     onDebug(
       createDebugEntry({
         source: "image",
         stage: "image-generate-start",
-        provider: "nano-banana",
+        provider: imageClient.provider,
         model: imageModel,
         variantLabel: label,
         message: "开始请求图像生成",
@@ -246,20 +260,20 @@ async function createVariantWithProvider(params: {
         createDebugEntry({
           source: "image",
           stage: "image-generate-success",
-          provider: "nano-banana",
+          provider: imageClient.provider,
           model: imageModel,
           variantLabel: label,
           message: imageUrl ? "图像生成成功" : "图像接口无返回URL",
           payload: imageUrl ?? ""
         })
       );
-      const withImage = attachGeneratedImage(base, imageUrl, imagePrompt);
+      const withImage = attachGeneratedImage(base, imageUrl, imagePrompt, imageClient.provider);
       if (!imageUrl) {
         return withImage;
       }
       return {
         ...withImage,
-        imageProvider: "nano-banana",
+        imageProvider: imageClient.provider,
         imageModel
       };
     } catch {
@@ -267,7 +281,7 @@ async function createVariantWithProvider(params: {
         createDebugEntry({
           source: "image",
           stage: "image-generate-error",
-          provider: "nano-banana",
+          provider: imageClient.provider,
           model: imageModel,
           variantLabel: label,
           message: "图像生成失败，继续文本结果",
@@ -312,7 +326,7 @@ async function createVariantWithProvider(params: {
         createDebugEntry({
           source: "llm",
           stage: "llm-request",
-          provider: "deepseek|openai",
+          provider: client.hasRemoteProvider() ? "remote-llm" : "none",
           variantLabel: label,
           message: `开始第 ${attempt} 次文本生成`,
           payload: feedback || "无重写反馈"
@@ -393,7 +407,7 @@ async function createVariantWithProvider(params: {
         createDebugEntry({
           source: "llm",
           stage: "llm-error",
-          provider: "deepseek|openai",
+          provider: client.hasRemoteProvider() ? "remote-llm" : "none",
           variantLabel: label,
           message: `第 ${attempt} 次生成失败`,
           payload: error instanceof Error ? error.message : "unknown-error"
@@ -486,7 +500,7 @@ export async function POST(request: Request): Promise<Response> {
   const llmClient = new UnifiedLlmClient({
     preferredProvider: provider
   });
-  const imageClient = new NanoBananaClient();
+  const imageClient = createImageClient(provider);
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -554,8 +568,7 @@ export async function POST(request: Request): Promise<Response> {
             existingQuestionTitles,
             strictRemote,
             qualityGateEnabled,
-            onDebug: pushDebug
-            ,
+            onDebug: pushDebug,
             enableImageVariants,
             allowRemoteImage: !forceLocal
           });

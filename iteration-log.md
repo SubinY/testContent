@@ -1,5 +1,43 @@
 # TestFlow 迭代记录
 
+## 2026-02-13 19:08:00 · Iteration 014 · V6 ModelGate 接入与文本/图像模型协同
+
+### 本次需求
+- 按 `demand-v6.md` 接入 ModelGate：
+  - 文字走 ModelGate OpenAI 兼容端点（`https://mg.aid.pub/v1`）。
+  - 图像走 ModelGate 图像端点（`https://mg.aid.pub/api/v1/images/generations`）。
+- 前端 provider 增加 `modelgate`，并解决“文本模型选择与图片模型平台不同”带来的歧义。
+
+### 改动后
+- LLM Provider 扩展（`lib/llm/*`, `types/index.ts`）：
+  - 新增 `lib/llm/providers/modelgate.ts`。
+  - `LlmProviderName` / `LlmProviderSelection` 增加 `modelgate`。
+  - `UnifiedLlmClient` 支持 `modelgate`，`auto` 顺序调整为 `modelgate -> deepseek -> openai`。
+  - `LLM_PROVIDER=modelgate` 可作为默认提供方。
+- 生成 API 与文案 API（`app/api/generate/route.ts`, `app/api/xiaohongshu/generate/route.ts`, `lib/prompts/xiaohongshu.ts`）：
+  - provider 校验支持 `modelgate`。
+  - 小红书文案生成支持按 provider 路由（含 modelgate）。
+  - `RUN_MODE=local` 时仍不调用任何远程模型。
+- 图像侧 ModelGate 接入（`lib/image/*`, `app/api/generate/route.ts`）：
+  - 新增 `lib/image/modelgate.ts`（支持 `output_type=base64` 返回解析）。
+  - 新增 `lib/image/client.ts`，实现图像提供方协同选择：
+    - 文本 provider 为 `modelgate` 时优先 ModelGate 图像。
+    - 若配置了 `MODELGATE_IMAGE_*` 也默认优先 ModelGate。
+    - 无可用 ModelGate 时回退 Nano Banana。
+  - 变体元数据支持 `imageProvider: modelgate | nano-banana`。
+- 前端歧义消解（`app/page.tsx`）：
+  - 文案改为“文本模型提供方”。
+  - 增加说明：图像模型由后端自动协同（ModelGate 优先，Nano Banana 回退）。
+- 环境变量与文档（`.env.example`, `README.md`）：
+  - 新增 `MODELGATE_API_KEY` / `MODELGATE_BASE_URL` / `MODELGATE_MODEL`。
+  - 新增 `MODELGATE_IMAGE_API_KEY` / `MODELGATE_IMAGE_URL` / `MODELGATE_IMAGE_MODEL` / `MODELGATE_IMAGE_SIZE` / `MODELGATE_IMAGE_OUTPUT_FORMAT`。
+  - README 增加 ModelGate 说明、provider 扩展、图像协同策略。
+
+### 影响评估
+- 在不破坏 DeepSeek/OpenAI/Nano Banana 现有路径下，引入了 ModelGate 可选聚合能力。
+- 用户端只选择“文本模型提供方”，图像平台改为后端自动协同，降低理解成本与操作歧义。
+- 无 ModelGate 配置时可平滑回退，避免静默失败。
+
 ## 2026-02-13 16:19:18 · Iteration 013 · 回退预览与导出一致性改动
 
 ### 本次需求

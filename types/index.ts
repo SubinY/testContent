@@ -93,10 +93,10 @@ export interface TestVariant {
   styleKey?: string;
   styleName?: string;
   generationSource?: "remote" | "remote-rewrite" | "local-fallback" | "local-mode";
-  textProvider?: "openai" | "deepseek" | "local";
+  textProvider?: "openai" | "deepseek" | "modelgate" | "local";
   textModel?: string;
   rawModelOutput?: string;
-  imageProvider?: "nano-banana";
+  imageProvider?: "nano-banana" | "modelgate";
   imageModel?: string;
   headline: string;
   description: string;
@@ -107,7 +107,7 @@ export interface TestVariant {
   imagePrompt?: string;
   imageAspectRatio?: string;
   imageAssets?: Array<{
-    provider: "nano-banana";
+    provider: "nano-banana" | "modelgate";
     kind: "projection-core";
     prompt: string;
     url: string;
@@ -173,7 +173,7 @@ export interface GenerateSseEventDebug {
   entry: DebugEntry;
 }
 
-export type LlmProviderSelection = "auto" | "openai" | "deepseek" | "local";
+export type LlmProviderSelection = "auto" | "openai" | "deepseek" | "modelgate" | "local";
 
 export type GenerateSseEvent =
   | GenerateSseEventProgress

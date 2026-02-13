@@ -1,6 +1,7 @@
 import { UnifiedLlmClient } from "@/lib/llm/client";
 import { contentPromptPath, loadContentPromptAndWordList, sanitizeCopyText } from "@/lib/prompts/sensitive";
 import { shouldForceLocalByRunMode } from "@/lib/runmode";
+import type { LlmProviderSelection } from "@/types";
 
 export interface XiaohongshuCopyResult {
   title: string;
@@ -25,6 +26,7 @@ type ExportVariantInput = {
 interface GenerateXiaohongshuCopyParams {
   topic: string;
   variant: ExportVariantInput;
+  preferredProvider?: LlmProviderSelection;
 }
 
 interface ParsedCopyPayload {
@@ -127,16 +129,16 @@ function buildUserPrompt(topic: string, variant: ExportVariantInput): string {
 export async function generateXiaohongshuCopy(
   params: GenerateXiaohongshuCopyParams
 ): Promise<XiaohongshuCopyResult> {
-  const { topic, variant } = params;
+  const { topic, variant, preferredProvider = "auto" } = params;
   const fallback = buildFallbackCopy(topic, variant);
 
-  if (shouldForceLocalByRunMode()) {
+  if (shouldForceLocalByRunMode() || preferredProvider === "local") {
     return fallback;
   }
 
   try {
     const { contentPrompt, bannedWords } = await loadContentPromptAndWordList();
-    const client = new UnifiedLlmClient({ preferredProvider: "auto" });
+    const client = new UnifiedLlmClient({ preferredProvider });
     if (!client.hasRemoteProvider()) {
       return fallback;
     }

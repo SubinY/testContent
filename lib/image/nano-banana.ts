@@ -1,11 +1,7 @@
 import type { TestVariant } from "@/types";
+import type { ImageGenerateClient, ImageGenerateInput } from "@/lib/image/types";
 
-export interface NanoBananaGenerateInput {
-  prompt: string;
-  aspectRatio?: string;
-  imageSize?: string;
-  timeoutMs?: number;
-}
+export type NanoBananaGenerateInput = ImageGenerateInput;
 
 interface NanoBananaResultItem {
   url?: string;
@@ -81,10 +77,11 @@ function normalizeTaskResult(raw: unknown): NanoBananaTaskResult {
   return raw as NanoBananaTaskResult;
 }
 
-export class NanoBananaClient {
+export class NanoBananaClient implements ImageGenerateClient {
+  readonly provider = "nano-banana" as const;
   private readonly apiKey: string | undefined;
   private readonly baseUrl: string;
-  private readonly model: string;
+  readonly model: string;
 
   constructor(params?: { apiKey?: string; baseUrl?: string; model?: string }) {
     this.apiKey = params?.apiKey ?? process.env.NANO_BANANA_API_KEY;
@@ -148,7 +145,8 @@ export class NanoBananaClient {
 export function attachGeneratedImage(
   variant: TestVariant,
   imageUrl: string | null,
-  prompt: string
+  prompt: string,
+  provider: TestVariant["imageProvider"] = "nano-banana"
 ): TestVariant {
   if (!imageUrl) {
     return variant;
@@ -159,7 +157,7 @@ export function attachGeneratedImage(
     imageAssets: [
       ...(variant.imageAssets ?? []),
       {
-        provider: "nano-banana",
+        provider,
         kind: "projection-core",
         prompt,
         url: imageUrl

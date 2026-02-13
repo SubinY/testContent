@@ -14,9 +14,10 @@ import type { DebugEntry, GenerateSseEvent, GeneratedTest, LlmProviderSelection 
 const MIN_COUNT = 1;
 const MAX_COUNT = 5;
 const MAX_COUNT_WITHOUT_IMAGE = 4;
-const PROVIDERS: LlmProviderSelection[] = ["auto", "openai", "deepseek", "local"];
+const PROVIDERS: LlmProviderSelection[] = ["auto", "modelgate", "openai", "deepseek", "local"];
 const PROVIDER_LABELS: Record<LlmProviderSelection, string> = {
   auto: "自动",
+  modelgate: "ModelGate",
   openai: "OpenAI",
   deepseek: "DeepSeek",
   local: "本地"
@@ -223,7 +224,7 @@ export default function HomePage() {
                   ? "border-amber-300 bg-amber-50 text-amber-900"
                   : "border-slate-300 bg-white text-slate-600"
               ].join(" ")}
-              title="图像变体开启时会使用 Nano Banana API"
+              title="图像变体开启后，图像端会按后端策略自动选择 ModelGate 或 Nano Banana"
             >
               <span>图像变体</span>
               <span>{enableImageVariants ? "开" : "关"}</span>
@@ -299,8 +300,8 @@ export default function HomePage() {
 
             {runMode === "api" && showAuxControls ? (
               <label className="grid gap-2">
-                <span className="text-sm font-semibold text-slate-700">模型提供方</span>
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                <span className="text-sm font-semibold text-slate-700">文本模型提供方</span>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
                   {PROVIDERS.map((value) => (
                     <button
                       key={value}
@@ -317,6 +318,9 @@ export default function HomePage() {
                     </button>
                   ))}
                 </div>
+                <p className="text-xs text-slate-500">
+                  图像模型由后端自动协同：若已配置 ModelGate 图像环境变量则优先走 ModelGate，否则回退 Nano Banana。
+                </p>
               </label>
             ) : runMode !== "api" && showAuxControls ? (
               <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">

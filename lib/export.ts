@@ -399,6 +399,7 @@ async function resolveXiaohongshuCopy(test: GeneratedTest, variant: TestVariant)
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         topic: test.topic,
+        provider: variant.textProvider ?? "auto",
         variant
       })
     });

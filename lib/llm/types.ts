@@ -1,4 +1,4 @@
-export type LlmProviderName = "openai" | "deepseek" | "local";
+export type LlmProviderName = "openai" | "deepseek" | "modelgate" | "local";
 
 export interface LlmGenerateInput {
   systemPrompt: string;

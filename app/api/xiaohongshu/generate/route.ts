@@ -7,6 +7,7 @@ export const dynamic = "force-dynamic";
 
 const requestSchema = z.object({
   topic: z.string().trim().min(2).max(120),
+  provider: z.enum(["auto", "openai", "deepseek", "modelgate", "local"]).optional(),
   variant: z.object({
     headline: z.string().optional(),
     description: z.string().optional(),
@@ -29,7 +30,8 @@ export async function POST(request: Request): Promise<Response> {
 
   const result = await generateXiaohongshuCopy({
     topic: parsed.data.topic,
-    variant: parsed.data.variant
+    variant: parsed.data.variant,
+    preferredProvider: parsed.data.provider ?? "auto"
   });
 
   return Response.json({ result });

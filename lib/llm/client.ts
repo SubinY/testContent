@@ -1,4 +1,5 @@
 import { DeepSeekProvider } from "@/lib/llm/providers/deepseek";
+import { ModelGateProvider } from "@/lib/llm/providers/modelgate";
 import { OpenAiProvider } from "@/lib/llm/providers/openai";
 import type { LlmGenerateInput, LlmProvider, LlmProviderName } from "@/lib/llm/types";
 
@@ -13,19 +14,25 @@ interface GenerationResult {
 }
 
 function resolveProviderOrder(preferred: LlmClientOptions["preferredProvider"]): LlmProviderName[] {
+  if (preferred === "local") {
+    return [];
+  }
+  if (preferred === "modelgate") {
+    return ["modelgate"];
+  }
   if (preferred === "openai") {
     return ["openai"];
   }
   if (preferred === "deepseek") {
     return ["deepseek"];
   }
-  return ["deepseek", "openai"];
+  return ["modelgate", "deepseek", "openai"];
 }
 
 type PreferredProvider = LlmProviderName | "auto";
 
 function normalizePreferredProvider(value: string | undefined): PreferredProvider {
-  if (value === "openai" || value === "deepseek" || value === "local" || value === "auto") {
+  if (value === "openai" || value === "deepseek" || value === "modelgate" || value === "local" || value === "auto") {
     return value;
   }
   return "auto";
@@ -41,6 +48,9 @@ function createProvider(name: LlmProviderName): LlmProvider | null {
   }
   if (name === "deepseek") {
     return new DeepSeekProvider();
+  }
+  if (name === "modelgate") {
+    return new ModelGateProvider();
   }
   return null;
 }
