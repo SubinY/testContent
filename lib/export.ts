@@ -61,25 +61,15 @@ export function buildStandaloneHtml(variant: TestVariant, options?: StandaloneHt
       border: 1px solid var(--border);
       box-shadow: var(--shadow);
       overflow: hidden;
+      margin: 0 auto;
     }
     .header {
       padding: 24px;
       border-bottom: 1px solid var(--border);
       background: var(--surface-muted);
     }
-    .label {
-      display: inline-flex;
-      padding: 6px 12px;
-      border-radius: 999px;
-      background: var(--accent-soft);
-      color: var(--accent-hover);
-      font-weight: 700;
-      font-size: 12px;
-      letter-spacing: .08em;
-      text-transform: uppercase;
-    }
     h1 {
-      margin: 12px 0 8px;
+      margin: 0 0 8px;
       font-size: 28px;
       line-height: 1.2;
       font-family: var(--font-heading);
@@ -187,7 +177,6 @@ export function buildStandaloneHtml(variant: TestVariant, options?: StandaloneHt
 <body>
   <div class="app">
     <div class="header">
-      <span class="label">变体 ${variant.label}</span>
       <h1 id="title"></h1>
       <p id="desc"></p>
     </div>
