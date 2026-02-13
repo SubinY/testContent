@@ -13,6 +13,7 @@ import {
   sampleAssessmentStylesByPolicy,
   type AssessmentStyle
 } from "@/lib/prompts";
+import { shouldForceLocalByRunMode } from "@/lib/runmode";
 import { buildTopicAnalysis } from "@/lib/topic-deconstruction";
 import type { DebugEntry, GeneratedTest, GenerateSseEvent, LlmProviderSelection, TestVariant } from "@/types";
 
@@ -190,6 +191,7 @@ async function createVariantWithProvider(params: {
   qualityGateEnabled: boolean;
   onDebug: (entry: DebugEntry) => void;
   enableImageVariants: boolean;
+  allowRemoteImage: boolean;
 }): Promise<TestVariant> {
   const {
     client,
@@ -203,13 +205,14 @@ async function createVariantWithProvider(params: {
     existingQuestionTitles,
     strictRemote,
     qualityGateEnabled,
-    enableImageVariants
+    enableImageVariants,
+    allowRemoteImage
   } = params;
   const imageModel = process.env.NANO_BANANA_MODEL ?? "nano-banana-fast";
   const { onDebug } = params;
 
   const withImageMeta = async (base: TestVariant): Promise<TestVariant> => {
-    if (!enableImageVariants || !style.requiresImage) {
+    if (!enableImageVariants || !style.requiresImage || !allowRemoteImage) {
       return {
         ...base,
         imagePrompt: undefined,
@@ -321,7 +324,7 @@ async function createVariantWithProvider(params: {
           avoidQuestionTitles: existingQuestionTitles,
           qualityFeedback: feedback
         }),
-        timeoutMs: 600_000
+        timeoutMs: 60_000
       });
       onDebug(
         createDebugEntry({
@@ -463,8 +466,9 @@ export async function POST(request: Request): Promise<Response> {
   const strictRemote = parsedBody.data.strictRemote ?? false;
   const qualityGateEnabled = parsedBody.data.qualityGateEnabled ?? true;
   const requestedProvider = parsedBody.data.provider ?? getPreferredProviderFromEnv();
-  const provider: LlmProviderSelection = requestedProvider;
-  const forceLocal = provider === "local";
+  const runModeForcesLocal = shouldForceLocalByRunMode();
+  const provider: LlmProviderSelection = runModeForcesLocal ? "local" : requestedProvider;
+  const forceLocal = runModeForcesLocal || provider === "local";
   if (strictRemote && forceLocal) {
     return Response.json({ message: "strictRemote 开启时不允许使用 local provider。" }, { status: 400 });
   }
@@ -552,7 +556,8 @@ export async function POST(request: Request): Promise<Response> {
             qualityGateEnabled,
             onDebug: pushDebug
             ,
-            enableImageVariants
+            enableImageVariants,
+            allowRemoteImage: !forceLocal
           });
 
           variants.push(variant);

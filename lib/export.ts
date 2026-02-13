@@ -362,6 +362,68 @@ interface ExportReadmeOptions {
   screenshotStrategy?: string;
 }
 
+interface XiaohongshuCopyData {
+  title: string;
+  body: string;
+  hashtags: string[];
+}
+
+function normalizeHashtags(hashtags: string[]): string[] {
+  return Array.from(
+    new Set(
+      hashtags
+        .map((item) => item.trim().replace(/\s+/g, ""))
+        .filter((item) => item.length > 0)
+        .map((item) => (item.startsWith("#") ? item : `#${item}`))
+    )
+  );
+}
+
+function buildFallbackXiaohongshuCopy(test: GeneratedTest, variant: TestVariant): XiaohongshuCopyData {
+  const title = variant.headline.trim() || `${test.topic}测评｜${variant.styleName ?? variant.label}`;
+  const body = variant.description.trim() || `围绕“${test.topic}”整理了一份测评内容，欢迎你也来试试。`;
+  const hashtags = normalizeHashtags(variant.hashtags.length > 0 ? variant.hashtags : [`#${test.topic}`, "#心理测试", "#测评"]);
+
+  return { title, body, hashtags };
+}
+
+function toCopyTxtContent(copy: XiaohongshuCopyData): string {
+  return [copy.title, copy.body, copy.hashtags.join(" ")].join("\n").trim();
+}
+
+async function resolveXiaohongshuCopy(test: GeneratedTest, variant: TestVariant): Promise<XiaohongshuCopyData> {
+  const fallback = buildFallbackXiaohongshuCopy(test, variant);
+  try {
+    const response = await fetch("/api/xiaohongshu/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        topic: test.topic,
+        variant
+      })
+    });
+    if (!response.ok) {
+      return fallback;
+    }
+    const payload = (await response.json()) as {
+      result?: {
+        title?: string;
+        body?: string;
+        hashtags?: string[];
+      };
+    };
+    const title = payload.result?.title?.trim() || fallback.title;
+    const body = payload.result?.body?.trim() || fallback.body;
+    const hashtags = normalizeHashtags(payload.result?.hashtags ?? fallback.hashtags);
+    if (!title || !body || hashtags.length === 0) {
+      return fallback;
+    }
+    return { title, body, hashtags };
+  } catch {
+    return fallback;
+  }
+}
+
 function buildReadme(test: GeneratedTest, variant: TestVariant, options?: ExportReadmeOptions): string {
   const theme = getThemeById(options?.themeId);
   const screenshotStrategy = options?.screenshotStrategy ?? "full-content-slides";
@@ -392,10 +454,8 @@ function buildReadme(test: GeneratedTest, variant: TestVariant, options?: Export
     "包含文件:",
     "- index.html",
     "- /screenshots/*.png",
-    "- /copy/titles.txt",
-    "- /copy/content.txt",
-    "- /copy/hashtags.txt",
-    "- /copy/dm_scripts.json",
+    "- /material/copy.txt（小红书文案：标题 + 正文 + 话题）",
+    "- /material/scripts.txt（私信话术，每行一条）",
     "- README.txt",
     ...analysisLines
   ].join("\n");
@@ -418,26 +478,11 @@ export async function downloadFullZipBundle(params: {
     zip.file(path, blob);
   });
 
-  const packageTitles = variant.copyPackage?.titles?.length
-    ? variant.copyPackage.titles
-    : [variant.headline, variant.coverTitle];
-  const packageContent = variant.copyPackage?.content?.length
-    ? variant.copyPackage.content
-    : [
-        variant.description,
-        ...variant.questions.map((q, i) => `第${i + 1}题：${q.title}`),
-        ...variant.results.map((r, i) => `结果${i + 1}：${r.title} - ${r.description}`)
-      ];
-  const packageHashtags = variant.copyPackage?.hashtags?.length ? variant.copyPackage.hashtags : variant.hashtags;
   const packageDmScripts = variant.copyPackage?.dmScripts?.length ? variant.copyPackage.dmScripts : variant.dmScripts;
+  const xiaohongshuCopy = await resolveXiaohongshuCopy(test, variant);
 
-  zip.file("copy/titles.txt", packageTitles.join("\n"));
-  zip.file(
-    "copy/content.txt",
-    packageContent.join("\n")
-  );
-  zip.file("copy/hashtags.txt", packageHashtags.join("\n"));
-  zip.file("copy/dm_scripts.json", JSON.stringify({ scripts: packageDmScripts }, null, 2));
+  zip.file("material/copy.txt", toCopyTxtContent(xiaohongshuCopy));
+  zip.file("material/scripts.txt", packageDmScripts.join("\n"));
   zip.file("README.txt", buildReadme(test, variant, { themeId, screenshotStrategy }));
 
   const file = await zip.generateAsync({ type: "blob" });

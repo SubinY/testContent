@@ -152,7 +152,8 @@ V4 迭代新增：
 
 - `index.html`
 - `/screenshots/*.png`
-- `/material/dm_scripts.json`
+- `/material/copy.txt`
+- `/material/scripts.txt`
 - `README.txt`
 
 ---

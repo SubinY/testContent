@@ -40,7 +40,7 @@ export default function DebugFloatingPanel(props: DebugFloatingPanelProps) {
               </button>
             </div>
             <div className="grid h-[calc(80vh-53px)] gap-0 md:grid-cols-2">
-              <section className="border-r border-slate-200 p-3">
+              <section className="border-r border-slate-200 p-3 overflow-hidden">
                 <p className="mb-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Debug Trace</p>
                 <div className="h-full overflow-auto space-y-2 pr-1">
                   {sortedEntries.length === 0 ? (

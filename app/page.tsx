@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 
 import DebugFloatingPanel from "@/components/debug-floating-panel";
 import { buildMockGeneratedTest } from "@/lib/mock-test";
+import { getClientDefaultRunMode, type RunMode } from "@/lib/runmode";
 import { saveGeneratedTest, saveLatestTestId } from "@/lib/storage";
 import { useTestStore } from "@/store/testStore";
 import type { DebugEntry, GenerateSseEvent, GeneratedTest, LlmProviderSelection } from "@/types";
@@ -20,7 +21,6 @@ const PROVIDER_LABELS: Record<LlmProviderSelection, string> = {
   deepseek: "DeepSeek",
   local: "本地"
 };
-type RunMode = "api" | "local";
 
 export default function HomePage() {
   const showAuxControls = process.env.NEXT_PUBLIC_SHOW_AUX_CONTROLS !== "false";
@@ -28,7 +28,7 @@ export default function HomePage() {
   const [topic, setTopic] = useState("");
   const [count, setCount] = useState(3);
   const [provider, setProvider] = useState<LlmProviderSelection>("auto");
-  const [runMode, setRunMode] = useState<RunMode>("local");
+  const [runMode, setRunMode] = useState<RunMode>(() => getClientDefaultRunMode());
   const [enableImageVariants, setEnableImageVariants] = useState(false);
   const [qualityGateEnabled, setQualityGateEnabled] = useState(false);
   const [errorText, setErrorText] = useState("");
