@@ -3,7 +3,8 @@ import { z } from "zod";
 import { pickTheme } from "@/styles/themes";
 import type { TestOption, TestQuestion, TestResult, TestVariant, TopicAnalysis } from "@/types";
 
-type StyleLabel = "A" | "B" | "C" | "D" | "E";
+export const STYLE_LABELS = ["A", "B", "C", "D", "E"] as const;
+export type StyleLabel = (typeof STYLE_LABELS)[number];
 
 export type AssessmentStyleKey =
   | "image_projection"
@@ -105,7 +106,6 @@ export const ASSESSMENT_STYLES: Record<StyleLabel, AssessmentStyle> = {
   }
 };
 
-const STYLE_LABELS: StyleLabel[] = ["A", "B", "C", "D", "E"];
 const STYLE_SEQUENCE = STYLE_LABELS.map((label) => ASSESSMENT_STYLES[label]);
 
 const optionSchema = z.object({

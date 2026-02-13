@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 
 import DebugFloatingPanel from "@/components/debug-floating-panel";
 import { buildMockGeneratedTest } from "@/lib/mock-test";
+import { ASSESSMENT_STYLES, STYLE_LABELS, type StyleLabel } from "@/lib/prompts";
 import { getClientDefaultRunMode, type RunMode } from "@/lib/runmode";
 import { saveGeneratedTest, saveLatestTestId } from "@/lib/storage";
 import { useTestStore } from "@/store/testStore";
@@ -14,6 +15,7 @@ import type { DebugEntry, GenerateSseEvent, GeneratedTest, LlmProviderSelection 
 const MIN_COUNT = 1;
 const MAX_COUNT = 5;
 const MAX_COUNT_WITHOUT_IMAGE = 4;
+type VariantInputMode = "draw" | "select";
 const PROVIDERS: LlmProviderSelection[] = ["auto", "modelgate", "openai", "deepseek", "local"];
 const PROVIDER_LABELS: Record<LlmProviderSelection, string> = {
   auto: "自动",
@@ -23,11 +25,17 @@ const PROVIDER_LABELS: Record<LlmProviderSelection, string> = {
   local: "本地"
 };
 
+function resolveDefaultVariantInputMode(): VariantInputMode {
+  return process.env.NEXT_PUBLIC_DEFAULT_VARIANT_INPUT_MODE === "draw" ? "draw" : "select";
+}
+
 export default function HomePage() {
   const showAuxControls = process.env.NEXT_PUBLIC_SHOW_AUX_CONTROLS !== "false";
   const router = useRouter();
   const [topic, setTopic] = useState("");
   const [count, setCount] = useState(3);
+  const [variantInputMode, setVariantInputMode] = useState<VariantInputMode>(() => resolveDefaultVariantInputMode());
+  const [selectedVariantLabel, setSelectedVariantLabel] = useState<StyleLabel>("B");
   const [provider, setProvider] = useState<LlmProviderSelection>("auto");
   const [runMode, setRunMode] = useState<RunMode>(() => getClientDefaultRunMode());
   const [enableImageVariants, setEnableImageVariants] = useState(false);
@@ -49,8 +57,13 @@ export default function HomePage() {
   } = useTestStore();
 
   const canSubmit = useMemo(
-    () => topic.trim().length >= 2 && !isGenerating && count >= MIN_COUNT && count <= maxCount,
-    [count, isGenerating, maxCount, topic]
+    () =>
+      topic.trim().length >= 2 &&
+      !isGenerating &&
+      (variantInputMode === "draw"
+        ? count >= MIN_COUNT && count <= maxCount
+        : selectedVariantLabel !== "A" || enableImageVariants),
+    [count, enableImageVariants, isGenerating, maxCount, selectedVariantLabel, topic, variantInputMode]
   );
 
   useEffect(() => {
@@ -58,6 +71,13 @@ export default function HomePage() {
       setCount(maxCount);
     }
   }, [count, maxCount]);
+
+  useEffect(() => {
+    if (!enableImageVariants && selectedVariantLabel === "A") {
+      setSelectedVariantLabel("B");
+      setErrorText("图像变体关闭后，已自动切换为 B（场景选择剧情型）。");
+    }
+  }, [enableImageVariants, selectedVariantLabel]);
 
   const parseEvent = (line: string): GenerateSseEvent | null => {
     if (!line.startsWith("data: ")) {
@@ -87,7 +107,10 @@ export default function HomePage() {
       if (runMode === "local") {
         setProgress(12, "使用本地模板生成中。");
         addStreamEvent("本地模板模式：不调用远程 API。");
-        const test = buildMockGeneratedTest(topic.trim(), count, { enableImageVariants });
+        const test = buildMockGeneratedTest(topic.trim(), variantInputMode === "draw" ? count : 1, {
+          enableImageVariants,
+          selectedVariantLabel: variantInputMode === "select" ? selectedVariantLabel : undefined
+        });
         setDebugEntries(test.debugTrace ?? []);
         saveGeneratedTest(test);
         saveLatestTestId(test.id);
@@ -105,7 +128,8 @@ export default function HomePage() {
         },
         body: JSON.stringify({
           topic: topic.trim(),
-          count,
+          ...(variantInputMode === "draw" ? { count } : { selectedVariantLabel }),
+          variantInputMode,
           enableImageVariants,
           strictRemote: true,
           qualityGateEnabled,
@@ -267,36 +291,106 @@ export default function HomePage() {
             </label>
 
             <label className="grid gap-2">
-              <span className="text-sm font-semibold text-slate-700">
-                生成数量（{MIN_COUNT}-{maxCount}）
-              </span>
-              <div className={`grid gap-2 ${maxCount === 5 ? "grid-cols-5" : "grid-cols-4"}`}>
-                {Array.from({ length: maxCount }, (_, i) => i + 1).map((value) => (
-                  <button
-                    key={value}
-                    type="button"
-                    onClick={() => setCount(value)}
-                    className={[
-                      "h-11 cursor-pointer rounded-xl border text-sm font-semibold transition-all",
-                      count === value
-                        ? "border-amber-300 bg-amber-50 text-amber-900"
-                        : "border-slate-300 bg-white text-slate-700 hover:border-amber-200 hover:bg-amber-50/50"
-                    ].join(" ")}
-                  >
-                    {value}
-                  </button>
-                ))}
+              <span className="text-sm font-semibold text-slate-700">变体输入模式</span>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setVariantInputMode("select")}
+                  className={[
+                    "h-11 cursor-pointer rounded-xl border text-sm font-semibold transition-all",
+                    variantInputMode === "select"
+                      ? "border-amber-300 bg-amber-50 text-amber-900"
+                      : "border-slate-300 bg-white text-slate-700 hover:border-amber-200 hover:bg-amber-50/50"
+                  ].join(" ")}
+                >
+                  自主选择
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setVariantInputMode("draw")}
+                  className={[
+                    "h-11 cursor-pointer rounded-xl border text-sm font-semibold transition-all",
+                    variantInputMode === "draw"
+                      ? "border-amber-300 bg-amber-50 text-amber-900"
+                      : "border-slate-300 bg-white text-slate-700 hover:border-amber-200 hover:bg-amber-50/50"
+                  ].join(" ")}
+                >
+                  抽卡随机
+                </button>
               </div>
-              <input
-                type="range"
-                min={MIN_COUNT}
-                max={maxCount}
-                step={1}
-                value={count}
-                onChange={(e) => setCount(Number(e.target.value))}
-                className="w-full accent-amber-600"
-              />
             </label>
+
+            {variantInputMode === "draw" ? (
+              <label className="grid gap-2">
+                <span className="text-sm font-semibold text-slate-700">
+                  生成数量（{MIN_COUNT}-{maxCount}）
+                </span>
+                <div className={`grid gap-2 ${maxCount === 5 ? "grid-cols-5" : "grid-cols-4"}`}>
+                  {Array.from({ length: maxCount }, (_, i) => i + 1).map((value) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => setCount(value)}
+                      className={[
+                        "h-11 cursor-pointer rounded-xl border text-sm font-semibold transition-all",
+                        count === value
+                          ? "border-amber-300 bg-amber-50 text-amber-900"
+                          : "border-slate-300 bg-white text-slate-700 hover:border-amber-200 hover:bg-amber-50/50"
+                      ].join(" ")}
+                    >
+                      {value}
+                    </button>
+                  ))}
+                </div>
+                <input
+                  type="range"
+                  min={MIN_COUNT}
+                  max={maxCount}
+                  step={1}
+                  value={count}
+                  onChange={(e) => setCount(Number(e.target.value))}
+                  className="w-full accent-amber-600"
+                />
+                <p className="text-xs text-slate-500">系统将随机抽取 {count} 种测评风格。</p>
+              </label>
+            ) : (
+              <fieldset className="grid gap-2">
+                <legend className="text-sm font-semibold text-slate-700">变体类型单选</legend>
+                <p className="text-xs text-slate-500">将生成 1 个变体，请选择一种测评风格。</p>
+                <div className="grid gap-2">
+                  {STYLE_LABELS.map((label) => {
+                    const style = ASSESSMENT_STYLES[label];
+                    const disabled = !enableImageVariants && style.requiresImage;
+                    return (
+                      <label
+                        key={label}
+                        className={[
+                          "flex cursor-pointer items-center justify-between rounded-xl border px-3 py-2 text-sm transition-all",
+                          selectedVariantLabel === label
+                            ? "border-amber-300 bg-amber-50 text-amber-900"
+                            : "border-slate-300 bg-white text-slate-700 hover:border-amber-200 hover:bg-amber-50/50",
+                          disabled ? "cursor-not-allowed opacity-50" : ""
+                        ].join(" ")}
+                      >
+                        <span className="font-semibold">
+                          {label}. {style.name}
+                        </span>
+                        <span className="text-xs text-slate-500">{disabled ? "需开启图像变体" : "可选"}</span>
+                        <input
+                          type="radio"
+                          name="variant-style"
+                          value={label}
+                          checked={selectedVariantLabel === label}
+                          onChange={() => setSelectedVariantLabel(label)}
+                          disabled={disabled}
+                          className="sr-only"
+                        />
+                      </label>
+                    );
+                  })}
+                </div>
+              </fieldset>
+            )}
 
             {runMode === "api" && showAuxControls ? (
               <label className="grid gap-2">

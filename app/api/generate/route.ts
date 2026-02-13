@@ -5,6 +5,7 @@ import { attachGeneratedImage } from "@/lib/image/nano-banana";
 import type { ImageGenerateClient } from "@/lib/image/types";
 import { getPreferredProviderFromEnv, UnifiedLlmClient } from "@/lib/llm/client";
 import {
+  ASSESSMENT_STYLES,
   buildNanoBananaPrompt,
   buildSystemPrompt,
   buildUserPrompt,
@@ -13,6 +14,7 @@ import {
   parseModelJson,
   repairVariantPayload,
   sampleAssessmentStylesByPolicy,
+  STYLE_LABELS,
   type AssessmentStyle
 } from "@/lib/prompts";
 import { shouldForceLocalByRunMode } from "@/lib/runmode";
@@ -24,11 +26,13 @@ export const dynamic = "force-dynamic";
 
 const requestSchema = z.object({
   topic: z.string().trim().min(2).max(120),
-  count: z.number().int().min(1).max(5),
+  count: z.number().int().min(1).max(5).optional(),
   enableImageVariants: z.boolean().optional(),
   strictRemote: z.boolean().optional(),
   qualityGateEnabled: z.boolean().optional(),
-  provider: z.enum(["auto", "openai", "deepseek", "modelgate", "local"]).optional()
+  provider: z.enum(["auto", "openai", "deepseek", "modelgate", "local"]).optional(),
+  variantInputMode: z.enum(["draw", "select"]).optional(),
+  selectedVariantLabel: z.enum(STYLE_LABELS).optional()
 });
 
 const encoder = new TextEncoder();
@@ -475,10 +479,22 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json({ message: "请求参数不合法。" }, { status: 400 });
   }
 
-  const { topic, count } = parsedBody.data;
+  const { topic } = parsedBody.data;
+  const count = parsedBody.data.count ?? 1;
+  const selectedVariantLabel = parsedBody.data.selectedVariantLabel;
+  const variantInputMode = parsedBody.data.variantInputMode ?? (selectedVariantLabel ? "select" : "draw");
   const enableImageVariants = parsedBody.data.enableImageVariants ?? true;
   const strictRemote = parsedBody.data.strictRemote ?? false;
   const qualityGateEnabled = parsedBody.data.qualityGateEnabled ?? true;
+  if (variantInputMode === "select" && !selectedVariantLabel) {
+    return Response.json({ message: "选择模式下必须提供 selectedVariantLabel。" }, { status: 400 });
+  }
+  if (selectedVariantLabel === "A" && !enableImageVariants) {
+    return Response.json({ message: "未开启图像变体时不能选择第一眼图像投射型（A）。" }, { status: 400 });
+  }
+  if (!selectedVariantLabel && parsedBody.data.count === undefined) {
+    return Response.json({ message: "抽卡模式下必须提供 count。" }, { status: 400 });
+  }
   const requestedProvider = parsedBody.data.provider ?? getPreferredProviderFromEnv();
   const runModeForcesLocal = shouldForceLocalByRunMode();
   const provider: LlmProviderSelection = runModeForcesLocal ? "local" : requestedProvider;
@@ -486,17 +502,23 @@ export async function POST(request: Request): Promise<Response> {
   if (strictRemote && forceLocal) {
     return Response.json({ message: "strictRemote 开启时不允许使用 local provider。" }, { status: 400 });
   }
+  const topicAnalysis = buildTopicAnalysis(topic);
   const maxCount = getAvailableStyleCount(enableImageVariants);
-  if (count > maxCount) {
+  if (!selectedVariantLabel && count > maxCount) {
     return Response.json({ message: `当前设置下最多只能生成 ${maxCount} 个变体。` }, { status: 400 });
   }
-  const topicAnalysis = buildTopicAnalysis(topic);
-  const sampledStyles = sampleAssessmentStylesByPolicy({
-    count,
-    recommendedStyles: topicAnalysis.formConstraints.recommendedStyles,
-    allowedStyleKeys: topicAnalysis.formConstraints.allowedStyleKeys,
-    allowImageStyles: enableImageVariants
-  });
+  const stylesToGenerate = selectedVariantLabel
+    ? [{ label: selectedVariantLabel, style: ASSESSMENT_STYLES[selectedVariantLabel] }]
+    : sampleAssessmentStylesByPolicy({
+        count,
+        recommendedStyles: topicAnalysis.formConstraints.recommendedStyles,
+        allowedStyleKeys: topicAnalysis.formConstraints.allowedStyleKeys,
+        allowImageStyles: enableImageVariants
+      });
+  const totalVariants = stylesToGenerate.length;
+  if (totalVariants === 0) {
+    return Response.json({ message: "未找到可用测评风格。" }, { status: 400 });
+  }
   const llmClient = new UnifiedLlmClient({
     preferredProvider: provider
   });
@@ -534,14 +556,14 @@ export async function POST(request: Request): Promise<Response> {
           toSseChunk({
             status: "progress",
             progress: 8,
-            message: `主题解构完成：理论适配度 ${topicAnalysis.theoryFramework.confidence.level}`
+            message: `主题解构完成：理论适配度 ${topicAnalysis.theoryFramework.confidence.level}，即将生成 ${totalVariants} 个变体。`
           })
         );
 
         const variants: TestVariant[] = [];
         const existingQuestionTitles: string[] = [];
-        for (let index = 0; index < count; index += 1) {
-          const picked = sampledStyles[index];
+        for (let index = 0; index < totalVariants; index += 1) {
+          const picked = stylesToGenerate[index];
           const label = picked?.label ?? String.fromCharCode(65 + index);
           const style = picked?.style;
           if (!style) {
@@ -551,7 +573,7 @@ export async function POST(request: Request): Promise<Response> {
           controller.enqueue(
             toSseChunk({
               status: "progress",
-              progress: 10 + Math.floor((index / count) * 70),
+              progress: 10 + Math.floor((index / totalVariants) * 70),
               message: `正在生成 ${label} 版（${style.name}）...`
             })
           );
@@ -582,7 +604,7 @@ export async function POST(request: Request): Promise<Response> {
             toSseChunk({
               status: "variant",
               index,
-              total: count,
+              total: totalVariants,
               variant
             })
           );
@@ -590,7 +612,7 @@ export async function POST(request: Request): Promise<Response> {
           controller.enqueue(
             toSseChunk({
               status: "progress",
-              progress: 15 + Math.floor(((index + 1) / count) * 72),
+              progress: 15 + Math.floor(((index + 1) / totalVariants) * 72),
               message: `${label} 版生成完成。`
             })
           );

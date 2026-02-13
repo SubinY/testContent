@@ -258,7 +258,7 @@ function buildMentalHealthVariant(topic: string): TestVariant {
 export function buildMockGeneratedTest(
   topic: string,
   count: number,
-  options?: { enableImageVariants?: boolean }
+  options?: { enableImageVariants?: boolean; selectedVariantLabel?: string }
 ): GeneratedTest {
   const safeTopic = topic.trim() || "隐藏人格类型";
   const allVariants = [
@@ -271,7 +271,11 @@ export function buildMockGeneratedTest(
   const enableImageVariants = options?.enableImageVariants ?? true;
   const variants = enableImageVariants ? allVariants : allVariants.filter((item) => item.styleKey !== "image_projection");
 
+  const selectedVariant = options?.selectedVariantLabel
+    ? variants.find((item) => item.label === options.selectedVariantLabel)
+    : null;
   const safeCount = Math.max(1, Math.min(variants.length, Math.floor(count)));
+  const outputVariants = selectedVariant ? [selectedVariant] : variants.slice(0, safeCount);
   return {
     id: crypto.randomUUID(),
     topic: safeTopic,
@@ -289,6 +293,6 @@ export function buildMockGeneratedTest(
         payload: `enableImageVariants=${String(enableImageVariants)}`
       }
     ],
-    variants: variants.slice(0, safeCount)
+    variants: outputVariants
   };
 }
