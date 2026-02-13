@@ -7,7 +7,7 @@ export interface TenantConfig {
 
 const DEFAULT_TENANT: TenantConfig = {
   name: "TestFlow 工作室",
-  productName: "TestFlow V1",
+  productName: "TestFlow V5",
   supportEmail: "service@testflow.local",
   website: "https://testflow.local"
 };
