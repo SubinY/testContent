@@ -1,4 +1,5 @@
 import type { GeneratedTest, TestQuestion, TestResult, TestVariant } from "@/types";
+import { buildTopicAnalysis } from "@/lib/topic-deconstruction";
 
 const MOCK_BANANA_IMAGE_URL = "/mock/banana-image-1.svg";
 
@@ -244,21 +245,28 @@ function buildMentalHealthVariant(topic: string): TestVariant {
   };
 }
 
-export function buildMockGeneratedTest(topic: string, count: number): GeneratedTest {
+export function buildMockGeneratedTest(
+  topic: string,
+  count: number,
+  options?: { enableImageVariants?: boolean }
+): GeneratedTest {
   const safeTopic = topic.trim() || "隐藏人格类型";
-  const variants = [
+  const allVariants = [
     buildProjectionVariant(safeTopic),
     buildStoryVariant(safeTopic),
     buildAttachmentVariant(safeTopic),
     buildPotentialVariant(safeTopic),
     buildMentalHealthVariant(safeTopic)
   ];
+  const enableImageVariants = options?.enableImageVariants ?? true;
+  const variants = enableImageVariants ? allVariants : allVariants.filter((item) => item.styleKey !== "image_projection");
 
-  const safeCount = Math.max(1, Math.min(5, Math.floor(count)));
+  const safeCount = Math.max(1, Math.min(variants.length, Math.floor(count)));
   return {
     id: crypto.randomUUID(),
     topic: safeTopic,
     createdAt: new Date().toISOString(),
+    topicAnalysis: buildTopicAnalysis(safeTopic),
     variants: variants.slice(0, safeCount)
   };
 }

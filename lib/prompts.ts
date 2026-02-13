@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { pickTheme } from "@/styles/themes";
-import type { TestOption, TestQuestion, TestResult, TestVariant } from "@/types";
+import type { TestOption, TestQuestion, TestResult, TestVariant, TopicAnalysis } from "@/types";
 
 type StyleLabel = "A" | "B" | "C" | "D" | "E";
 
@@ -106,6 +106,7 @@ export const ASSESSMENT_STYLES: Record<StyleLabel, AssessmentStyle> = {
 };
 
 const STYLE_LABELS: StyleLabel[] = ["A", "B", "C", "D", "E"];
+const STYLE_SEQUENCE = STYLE_LABELS.map((label) => ASSESSMENT_STYLES[label]);
 
 const optionSchema = z.object({
   text: z.string().min(1),
@@ -224,6 +225,29 @@ export const GENERATION_JSON_SCHEMA = {
   }
 } as const;
 
+function buildTopicAnalysisPromptBlock(topicAnalysis: TopicAnalysis): string {
+  const surface = topicAnalysis.deconstruction.surfaceImagery;
+  const deep = topicAnalysis.deconstruction.deepConstruct;
+  const confidence = topicAnalysis.theoryFramework.confidence;
+  const theories = topicAnalysis.theoryFramework.primaryTheories.map((item) => item.name).join("、");
+  const dimensions = topicAnalysis.theoryFramework.dimensions
+    .map((item) => `${item.name}(${item.indicatorType})`)
+    .join("、");
+
+  return [
+    "主题解构引擎输出（必须对齐，不可忽略）：",
+    `- 表面意象：元素=${surface.concreteElements.join("、") || "无"}；感官=${surface.sensoryChannel}；情绪=${surface.emotionalTone}`,
+    `- 深层构念：${deep.abstractConcept}；行为倾向=${deep.behavioralTendency}；时间指向=${deep.timeOrientation}`,
+    `- 测量目标：${topicAnalysis.deconstruction.assessmentGoal}`,
+    `- 理论组合：${theories}`,
+    `- 可测量维度：${dimensions}`,
+    `- 置信度：${confidence.level}；理由=${confidence.reasoning}`,
+    `- 效度威胁：${confidence.validityThreats.join("；")}`,
+    `- 风格建议：${topicAnalysis.formConstraints.recommendedStyles.join("、")}`,
+    `- 特别注意：${topicAnalysis.formConstraints.specialConsiderations.join("；") || "无"}`
+  ].join("\n");
+}
+
 const SYSTEM_PROMPT_BASE = `
 你是心理测评内容引擎，负责生成用于社交平台传播的中文测评。
 必须遵守：
@@ -262,7 +286,58 @@ export function sampleAssessmentStyles(count: number): Array<{ label: StyleLabel
   return pool.slice(0, safeCount).map((label) => ({ label, style: ASSESSMENT_STYLES[label] }));
 }
 
-export function buildSystemPrompt(label: string, style: AssessmentStyle): string {
+export function sampleAssessmentStylesByRecommendation(
+  count: number,
+  recommendedStyles: string[]
+): Array<{ label: StyleLabel; style: AssessmentStyle }> {
+  const safeCount = clamp(Math.floor(count), 1, STYLE_LABELS.length);
+  const sampled = sampleAssessmentStyles(STYLE_LABELS.length);
+  const recommendedSet = new Set(recommendedStyles);
+
+  const preferred = sampled.filter((item) => recommendedSet.has(item.style.name));
+  const fallback = sampled.filter((item) => !recommendedSet.has(item.style.name));
+  return [...preferred, ...fallback].slice(0, safeCount);
+}
+
+export function getAvailableStyleCount(allowImageStyles: boolean): number {
+  return allowImageStyles ? STYLE_SEQUENCE.length : STYLE_SEQUENCE.filter((item) => !item.requiresImage).length;
+}
+
+export function sampleAssessmentStylesByPolicy(params: {
+  count: number;
+  recommendedStyles?: string[];
+  allowedStyleKeys?: string[];
+  allowImageStyles?: boolean;
+}): Array<{ label: StyleLabel; style: AssessmentStyle }> {
+  const { count, recommendedStyles = [], allowedStyleKeys = [], allowImageStyles = true } = params;
+  const safeCount = clamp(Math.floor(count), 1, STYLE_LABELS.length);
+  const recommendedSet = new Set(recommendedStyles);
+  const allowedSet = new Set(allowedStyleKeys);
+  const baseSequence = allowImageStyles ? STYLE_SEQUENCE : STYLE_SEQUENCE.filter((item) => !item.requiresImage);
+  const shuffled = [...baseSequence];
+
+  for (let index = shuffled.length - 1; index > 0; index -= 1) {
+    const next = Math.floor(Math.random() * (index + 1));
+    [shuffled[index], shuffled[next]] = [shuffled[next], shuffled[index]];
+  }
+
+  const allowed = allowedSet.size > 0 ? shuffled.filter((item) => allowedSet.has(item.key)) : shuffled;
+  const pool = allowed.length > 0 ? allowed : shuffled;
+  if (pool.length === 0) {
+    return [];
+  }
+  const preferred = pool.filter((item) => recommendedSet.has(item.name));
+  const fallback = pool.filter((item) => !recommendedSet.has(item.name));
+  const ordered = [...preferred, ...fallback];
+
+  const outputCount = allowedSet.size > 0 ? safeCount : Math.min(safeCount, ordered.length);
+  return Array.from({ length: outputCount }, (_, index) => ({
+    label: STYLE_LABELS[index],
+    style: ordered[index % ordered.length]
+  }));
+}
+
+export function buildSystemPrompt(label: string, style: AssessmentStyle, topicAnalysis: TopicAnalysis): string {
   return `
 ${SYSTEM_PROMPT_BASE}
 
@@ -273,13 +348,16 @@ ${SYSTEM_PROMPT_BASE}
 心理学理论基础：${style.theoryBase.join("、")}
 约束：${style.knowledgeConstraints.join("；")}
 ${styleStructureInstruction(style)}
+${buildTopicAnalysisPromptBlock(topicAnalysis)}
 `.trim();
 }
 
-export function buildUserPrompt(topic: string, label: string, style: AssessmentStyle): string {
+export function buildUserPrompt(topic: string, label: string, style: AssessmentStyle, topicAnalysis: TopicAnalysis): string {
   return `
 主题：${topic}
 变体：${label}（${style.name}）
+推荐风格：${topicAnalysis.formConstraints.recommendedStyles.join("、")}
+风格适配说明：${topicAnalysis.formConstraints.styleAdaptationNotes}
 
 请围绕“${topic}”生成完整测评，必须满足：
 1. 题目数固定为 ${style.questionCount}。
@@ -330,7 +408,7 @@ function parseScoreVector(input: unknown): Record<string, number> | undefined {
   const result: Record<string, number> = {};
   for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
     if (typeof value === "number" && Number.isFinite(value)) {
-      result[key] = clamp(Math.floor(value), 0, 2);
+      result[key] = clamp(Math.floor(value), 0, 3);
     }
   }
   return Object.keys(result).length > 0 ? result : undefined;
@@ -395,7 +473,8 @@ function buildFallbackQuestion(topic: string, index: number, style: AssessmentSt
     "最近一周你是否会无明显原因焦虑？",
     "最近一周你是否容易被小事触发？",
     "最近一周你是否明显回避社交？",
-    "最近一周你是否感觉内耗影响行动？"
+    "最近一周你是否感觉内耗影响行动？",
+    "这些状态对你的工作、社交或生活功能影响有多大？"
   ];
 
   if (style.key === "image_projection") {
@@ -430,17 +509,26 @@ function buildFallbackQuestion(topic: string, index: number, style: AssessmentSt
   }
 
   if (style.key === "attachment_index") {
-    const optionPool = ["几乎总是", "经常如此", "偶尔如此", "很少如此"];
+    const optionPool = [
+      { text: "几乎总是", anxiety: 3, avoidance: 1 },
+      { text: "经常如此", anxiety: 2, avoidance: 1 },
+      { text: "偶尔如此", anxiety: 1, avoidance: 2 },
+      { text: "很少如此", anxiety: 0, avoidance: 3 }
+    ];
     return {
       id: `q-${index + 1}`,
       title: attachmentPrompts[index] ?? `亲密关系题 ${index + 1}`,
       subtitle: `围绕“${topic}”关系体验作答。`,
       dimension: "依恋倾向",
-      options: optionPool.map((text, optionIndex) => ({
+      options: optionPool.map((item, optionIndex) => ({
         id: `q${index + 1}-o${optionIndex + 1}`,
-        text,
+        text: item.text,
         scoreKey: "依恋倾向",
-        score: 4 - optionIndex
+        score: 4 - optionIndex,
+        scoreVector: {
+          anxiety: item.anxiety,
+          avoidance: item.avoidance
+        }
       }))
     };
   }
@@ -522,7 +610,7 @@ function buildFallbackResult(topic: string, index: number, style: AssessmentStyl
       `你在“${topic}”相关状态总体稳定。当前可继续维持健康节律。建议保留睡眠与运动的基础习惯。`,
       `你在“${topic}”上出现轻度压力信号。你仍有较强调节空间。建议减少信息过载并增加放松锚点。`,
       `你在“${topic}”上有明显消耗感。你需要系统恢复策略。建议把任务拆小并加入规律休息。`,
-      `你在“${topic}”上进入高压预警。请优先保障现实支持网络。若持续不适，建议尽快寻求专业帮助。`
+      `你在“${topic}”上进入高压预警。请优先保障现实支持网络。若持续不适，建议尽快寻求专业帮助或当地心理援助热线。`
     ]
   };
 

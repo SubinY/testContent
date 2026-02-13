@@ -6,12 +6,14 @@ import {
   buildNanoBananaPrompt,
   buildSystemPrompt,
   buildUserPrompt,
+  getAvailableStyleCount,
   generateLocalVariant,
   parseModelJson,
   repairVariantPayload,
-  sampleAssessmentStyles,
+  sampleAssessmentStylesByPolicy,
   type AssessmentStyle
 } from "@/lib/prompts";
+import { buildTopicAnalysis } from "@/lib/topic-deconstruction";
 import type { GeneratedTest, GenerateSseEvent, LlmProviderSelection, TestVariant } from "@/types";
 
 export const runtime = "nodejs";
@@ -20,6 +22,7 @@ export const dynamic = "force-dynamic";
 const requestSchema = z.object({
   topic: z.string().trim().min(2).max(120),
   count: z.number().int().min(1).max(5),
+  enableImageVariants: z.boolean().optional(),
   provider: z.enum(["auto", "openai", "deepseek", "local"]).optional()
 });
 
@@ -35,6 +38,50 @@ function delay(ms: number): Promise<void> {
   });
 }
 
+function applyTopicSafetyGuard(variant: TestVariant, topicAnalysis: GeneratedTest["topicAnalysis"]): TestVariant {
+  if (!topicAnalysis || topicAnalysis.formConstraints.specialConsiderations.length === 0) {
+    return variant;
+  }
+
+  const normalizePredictiveLanguage = (text: string): string => {
+    return text
+      .replace(/生存率/g, "应对倾向")
+      .replace(/成功率/g, "准备度")
+      .replace(/破产概率/g, "风险暴露倾向")
+      .replace(/概率/g, "可能性");
+  };
+
+  const needsPredictiveGuard = topicAnalysis.formConstraints.specialConsiderations.some((item) =>
+    item.includes("禁止真实概率预测")
+  );
+  const needsActionLadder = topicAnalysis.formConstraints.specialConsiderations.some((item) => item.includes("行动阶梯"));
+  const disclaimer = topicAnalysis.formConstraints.specialConsiderations.join(" ");
+  const rawDescription = needsPredictiveGuard ? normalizePredictiveLanguage(variant.description) : variant.description;
+  const nextDescription = rawDescription.includes(disclaimer) ? rawDescription : `${rawDescription}（${disclaimer}）`;
+
+  return {
+    ...variant,
+    headline: needsPredictiveGuard ? normalizePredictiveLanguage(variant.headline) : variant.headline,
+    coverTitle: needsPredictiveGuard ? normalizePredictiveLanguage(variant.coverTitle) : variant.coverTitle,
+    description: nextDescription,
+    results: variant.results.map((item) => {
+      const guardedDescription = needsPredictiveGuard ? normalizePredictiveLanguage(item.description) : item.description;
+      const withDisclaimer = guardedDescription.includes(disclaimer)
+        ? guardedDescription
+        : `${guardedDescription}（${disclaimer}）`;
+      const actionLadder = needsActionLadder
+        ? "行动阶梯：1) 先做一次最小验证；2) 连续7天记录阻碍；3) 下周只优化一个关键变量。"
+        : "";
+
+      return {
+        ...item,
+        description: withDisclaimer,
+        cta: actionLadder ? `${item.cta} ${actionLadder}`.trim() : item.cta
+      };
+    })
+  };
+}
+
 async function createVariantWithProvider(params: {
   client: UnifiedLlmClient;
   topic: string;
@@ -43,8 +90,9 @@ async function createVariantWithProvider(params: {
   variantIndex: number;
   forceLocal: boolean;
   imageClient: NanoBananaClient;
+  topicAnalysis: GeneratedTest["topicAnalysis"];
 }): Promise<TestVariant> {
-  const { client, topic, label, style, variantIndex, forceLocal, imageClient } = params;
+  const { client, topic, label, style, variantIndex, forceLocal, imageClient, topicAnalysis } = params;
   const imageModel = process.env.NANO_BANANA_MODEL ?? "nano-banana-fast";
 
   const withImageMeta = async (base: TestVariant): Promise<TestVariant> => {
@@ -79,15 +127,15 @@ async function createVariantWithProvider(params: {
       textProvider: "local",
       textModel: "local-template"
     };
-    return withImageMeta(withMeta);
+    return applyTopicSafetyGuard(await withImageMeta(withMeta), topicAnalysis);
   }
 
   let lastError: unknown = null;
   for (let attempt = 1; attempt <= 3; attempt += 1) {
     try {
       const response = await client.generate({
-        systemPrompt: buildSystemPrompt(label, style),
-        userPrompt: buildUserPrompt(topic, label, style),
+        systemPrompt: buildSystemPrompt(label, style, topicAnalysis ?? buildTopicAnalysis(topic)),
+        userPrompt: buildUserPrompt(topic, label, style, topicAnalysis ?? buildTopicAnalysis(topic)),
         timeoutMs: 30_000
       });
       const parsedPayload = parseModelJson(response.content);
@@ -102,7 +150,7 @@ async function createVariantWithProvider(params: {
         textProvider: response.provider,
         textModel: response.model
       };
-      return withImageMeta(withMeta);
+      return applyTopicSafetyGuard(await withImageMeta(withMeta), topicAnalysis);
     } catch (error) {
       lastError = error;
       if (attempt < 3) {
@@ -117,7 +165,7 @@ async function createVariantWithProvider(params: {
       textProvider: "local",
       textModel: "local-template"
     };
-    return withImageMeta(localFallback);
+    return applyTopicSafetyGuard(await withImageMeta(localFallback), topicAnalysis);
   }
 
   const defaultFallback: TestVariant = {
@@ -125,7 +173,7 @@ async function createVariantWithProvider(params: {
     textProvider: "local",
     textModel: "local-template"
   };
-  return withImageMeta(defaultFallback);
+  return applyTopicSafetyGuard(await withImageMeta(defaultFallback), topicAnalysis);
 }
 
 export async function POST(request: Request): Promise<Response> {
@@ -137,10 +185,21 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   const { topic, count } = parsedBody.data;
+  const enableImageVariants = parsedBody.data.enableImageVariants ?? true;
   const requestedProvider = parsedBody.data.provider ?? getPreferredProviderFromEnv();
   const provider: LlmProviderSelection = requestedProvider;
   const forceLocal = provider === "local";
-  const sampledStyles = sampleAssessmentStyles(count);
+  const maxCount = getAvailableStyleCount(enableImageVariants);
+  if (count > maxCount) {
+    return Response.json({ message: `当前设置下最多只能生成 ${maxCount} 个变体。` }, { status: 400 });
+  }
+  const topicAnalysis = buildTopicAnalysis(topic);
+  const sampledStyles = sampleAssessmentStylesByPolicy({
+    count,
+    recommendedStyles: topicAnalysis.formConstraints.recommendedStyles,
+    allowedStyleKeys: topicAnalysis.formConstraints.allowedStyleKeys,
+    allowImageStyles: enableImageVariants
+  });
   const llmClient = new UnifiedLlmClient({
     preferredProvider: provider
   });
@@ -162,6 +221,13 @@ export async function POST(request: Request): Promise<Response> {
             status: "progress",
             progress: 6,
             message: forceLocal ? "当前使用本地生成器。" : `当前模型提供方：${provider}`
+          })
+        );
+        controller.enqueue(
+          toSseChunk({
+            status: "progress",
+            progress: 8,
+            message: `主题解构完成：理论适配度 ${topicAnalysis.theoryFramework.confidence.level}`
           })
         );
 
@@ -189,7 +255,8 @@ export async function POST(request: Request): Promise<Response> {
             style,
             variantIndex: index,
             forceLocal,
-            imageClient
+            imageClient,
+            topicAnalysis
           });
 
           variants.push(variant);
@@ -216,6 +283,7 @@ export async function POST(request: Request): Promise<Response> {
           id: crypto.randomUUID(),
           topic,
           createdAt: new Date().toISOString(),
+          topicAnalysis,
           variants
         };
 

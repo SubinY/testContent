@@ -142,7 +142,7 @@ export default function PreviewPage() {
             activeVariantId={selectedVariant.id}
             onChange={(variantId) => setActiveVariant(variantId)}
           />
-          <TestRenderer variant={selectedVariant} />
+          <TestRenderer variant={selectedVariant} topicAnalysis={mountedTest.topicAnalysis} />
         </div>
 
         <section className="card-surface p-4 md:p-6">

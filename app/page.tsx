@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { useRouter } from "next/navigation";
 
@@ -11,6 +11,7 @@ import type { GenerateSseEvent, GeneratedTest, LlmProviderSelection } from "@/ty
 
 const MIN_COUNT = 1;
 const MAX_COUNT = 5;
+const MAX_COUNT_WITHOUT_IMAGE = 4;
 const PROVIDERS: LlmProviderSelection[] = ["auto", "openai", "deepseek", "local"];
 const PROVIDER_LABELS: Record<LlmProviderSelection, string> = {
   auto: "自动",
@@ -26,7 +27,9 @@ export default function HomePage() {
   const [count, setCount] = useState(3);
   const [provider, setProvider] = useState<LlmProviderSelection>("auto");
   const [runMode, setRunMode] = useState<RunMode>("api");
+  const [enableImageVariants, setEnableImageVariants] = useState(true);
   const [errorText, setErrorText] = useState("");
+  const maxCount = enableImageVariants ? MAX_COUNT : MAX_COUNT_WITHOUT_IMAGE;
 
   const {
     isGenerating,
@@ -40,7 +43,16 @@ export default function HomePage() {
     resetGeneration
   } = useTestStore();
 
-  const canSubmit = useMemo(() => topic.trim().length >= 2 && !isGenerating, [topic, isGenerating]);
+  const canSubmit = useMemo(
+    () => topic.trim().length >= 2 && !isGenerating && count >= MIN_COUNT && count <= maxCount,
+    [count, isGenerating, maxCount, topic]
+  );
+
+  useEffect(() => {
+    if (count > maxCount) {
+      setCount(maxCount);
+    }
+  }, [count, maxCount]);
 
   const parseEvent = (line: string): GenerateSseEvent | null => {
     if (!line.startsWith("data: ")) {
@@ -69,7 +81,7 @@ export default function HomePage() {
       if (runMode === "local") {
         setProgress(12, "使用本地模板生成中。");
         addStreamEvent("本地模板模式：不调用远程 API。");
-        const test = buildMockGeneratedTest(topic.trim(), count);
+        const test = buildMockGeneratedTest(topic.trim(), count, { enableImageVariants });
         saveGeneratedTest(test);
         saveLatestTestId(test.id);
         setCurrentTest(test);
@@ -87,6 +99,7 @@ export default function HomePage() {
         body: JSON.stringify({
           topic: topic.trim(),
           count,
+          enableImageVariants,
           provider
         })
       });
@@ -162,7 +175,47 @@ export default function HomePage() {
         transition={{ duration: 0.45 }}
         className="grid gap-6 lg:grid-cols-[1.15fr_0.85fr]"
       >
-        <article className="card-surface p-6 md:p-8">
+        <article className="card-surface relative p-6 md:p-8">
+          <div className="absolute right-6 top-6 flex items-center gap-2 md:right-8 md:top-8">
+            <div className="inline-flex h-8 overflow-hidden rounded-full border border-slate-300 bg-white">
+              <button
+                type="button"
+                onClick={() => setRunMode("api")}
+                className={[
+                  "h-8 px-3 text-xs font-semibold transition-all",
+                  runMode === "api" ? "bg-slate-900 text-white" : "bg-transparent text-slate-600 hover:bg-slate-50"
+                ].join(" ")}
+                title="API 测试：调用 /api/generate 与远程模型"
+              >
+                API
+              </button>
+              <button
+                type="button"
+                onClick={() => setRunMode("local")}
+                className={[
+                  "h-8 px-3 text-xs font-semibold transition-all",
+                  runMode === "local" ? "bg-slate-900 text-white" : "bg-transparent text-slate-600 hover:bg-slate-50"
+                ].join(" ")}
+                title="本地测试：不调用远程 API"
+              >
+                本地
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={() => setEnableImageVariants((value) => !value)}
+              className={[
+                "inline-flex h-8 items-center gap-2 rounded-full border px-3 text-xs font-semibold transition-all",
+                enableImageVariants
+                  ? "border-amber-300 bg-amber-50 text-amber-900"
+                  : "border-slate-300 bg-white text-slate-600"
+              ].join(" ")}
+              title="图像变体开启时会使用 Nano Banana API"
+            >
+              <span>图像变体</span>
+              <span>{enableImageVariants ? "开" : "关"}</span>
+            </button>
+          </div>
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">TestFlow V1</p>
           <h1 className="mt-2 text-4xl font-semibold leading-tight text-slate-900 md:text-5xl">
             输入主题，快速生成
@@ -175,36 +228,6 @@ export default function HomePage() {
 
           <form onSubmit={handleGenerate} className="mt-8 grid gap-6">
             <label className="grid gap-2">
-              <span className="text-sm font-semibold text-slate-700">运行模式</span>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setRunMode("api")}
-                  className={[
-                    "h-10 cursor-pointer rounded-xl border text-sm font-semibold transition-all",
-                    runMode === "api"
-                      ? "border-amber-300 bg-amber-50 text-amber-900"
-                      : "border-slate-300 bg-white text-slate-700 hover:border-amber-200 hover:bg-amber-50/50"
-                  ].join(" ")}
-                >
-                  API测试
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setRunMode("local")}
-                  className={[
-                    "h-10 cursor-pointer rounded-xl border text-sm font-semibold transition-all",
-                    runMode === "local"
-                      ? "border-amber-300 bg-amber-50 text-amber-900"
-                      : "border-slate-300 bg-white text-slate-700 hover:border-amber-200 hover:bg-amber-50/50"
-                  ].join(" ")}
-                >
-                  本地测试
-                </button>
-              </div>
-            </label>
-
-            <label className="grid gap-2">
               <span className="text-sm font-semibold text-slate-700">测试主题</span>
               <input
                 value={topic}
@@ -215,9 +238,11 @@ export default function HomePage() {
             </label>
 
             <label className="grid gap-2">
-              <span className="text-sm font-semibold text-slate-700">生成数量（1-5）</span>
-              <div className="grid grid-cols-5 gap-2">
-                {Array.from({ length: MAX_COUNT }, (_, i) => i + 1).map((value) => (
+              <span className="text-sm font-semibold text-slate-700">
+                生成数量（{MIN_COUNT}-{maxCount}）
+              </span>
+              <div className={`grid gap-2 ${maxCount === 5 ? "grid-cols-5" : "grid-cols-4"}`}>
+                {Array.from({ length: maxCount }, (_, i) => i + 1).map((value) => (
                   <button
                     key={value}
                     type="button"
@@ -236,7 +261,7 @@ export default function HomePage() {
               <input
                 type="range"
                 min={MIN_COUNT}
-                max={MAX_COUNT}
+                max={maxCount}
                 step={1}
                 value={count}
                 onChange={(e) => setCount(Number(e.target.value))}
@@ -267,7 +292,8 @@ export default function HomePage() {
               </label>
             ) : (
               <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
-                本地测试模式：使用预置 5 种变体模板与固定图像，不调用文本/图像远程 API。
+                本地测试模式：使用预置模板，不调用文本/图像远程 API。
+                {!enableImageVariants ? " 当前已关闭图像变体。" : ""}
               </div>
             )}
 

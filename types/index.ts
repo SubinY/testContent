@@ -6,6 +6,71 @@ export interface TestOption {
   scoreVector?: Record<string, number>;
 }
 
+export type SensoryChannel = "visual" | "auditory" | "tactile" | "kinesthetic" | "mixed";
+export type EmotionalTone = "positive" | "negative" | "neutral" | "ambivalent";
+export type BehavioralTendency = "approach" | "avoidance" | "control" | "submission";
+export type TimeOrientation = "past" | "present" | "future";
+export type AssessmentGoal = "predictive" | "descriptive" | "projective" | "entertainment";
+export type TheoryFitLevel = "high" | "moderate" | "low";
+
+export interface TopicDeconstructionSurfaceImagery {
+  concreteElements: string[];
+  sensoryChannel: SensoryChannel;
+  emotionalTone: EmotionalTone;
+}
+
+export interface TopicDeconstructionDeepConstruct {
+  abstractConcept: string;
+  behavioralTendency: BehavioralTendency;
+  timeOrientation: TimeOrientation;
+}
+
+export interface TopicDeconstruction {
+  surfaceImagery: TopicDeconstructionSurfaceImagery;
+  deepConstruct: TopicDeconstructionDeepConstruct;
+  assessmentGoal: AssessmentGoal;
+}
+
+export interface TopicTheoryItem {
+  name: string;
+  applicationLogic: string;
+}
+
+export interface TopicDimension {
+  name: string;
+  definition: string;
+  theoryBase: string;
+  indicatorType: "behavioral" | "self-report" | "projective";
+  expectedDistribution: "normal" | "skewed" | "bimodal";
+}
+
+export interface TopicFrameworkConfidence {
+  level: TheoryFitLevel;
+  reasoning: string;
+  validityThreats: string[];
+  scope: string;
+}
+
+export interface TopicTheoryFramework {
+  primaryTheories: TopicTheoryItem[];
+  dimensions: TopicDimension[];
+  confidence: TopicFrameworkConfidence;
+}
+
+export interface TopicFormConstraints {
+  recommendedStyles: string[];
+  allowedStyleKeys?: string[];
+  styleAdaptationNotes: string;
+  specialConsiderations: string[];
+}
+
+export interface TopicAnalysis {
+  topicType?: "fictional" | "extreme_real" | "abstract" | "general";
+  deconstruction: TopicDeconstruction;
+  theoryFramework: TopicTheoryFramework;
+  formConstraints: TopicFormConstraints;
+}
+
 export interface TestQuestion {
   id: string;
   title: string;
@@ -61,6 +126,7 @@ export interface GeneratedTest {
   id: string;
   topic: string;
   createdAt: string;
+  topicAnalysis?: TopicAnalysis;
   variants: TestVariant[];
 }
 

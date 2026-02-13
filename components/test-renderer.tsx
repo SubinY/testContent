@@ -1,9 +1,10 @@
 "use client";
 
-import type { TestVariant } from "@/types";
+import type { TestVariant, TopicAnalysis } from "@/types";
 
 interface TestRendererProps {
   variant: TestVariant;
+  topicAnalysis?: TopicAnalysis;
 }
 
 function getInteractionHint(variant: TestVariant): string {
@@ -26,7 +27,7 @@ function getInteractionHint(variant: TestVariant): string {
 }
 
 export default function TestRenderer(props: TestRendererProps) {
-  const { variant } = props;
+  const { variant, topicAnalysis } = props;
   const imageUrl = variant.imageAssets?.[0]?.url;
   const previewQuestions = variant.questions.slice(0, variant.styleKey === "image_projection" ? 1 : 3);
 
@@ -36,6 +37,23 @@ export default function TestRenderer(props: TestRendererProps) {
       <h3 className="mt-2 text-lg font-semibold text-slate-900">{variant.coverTitle}</h3>
       <p className="mt-1 text-sm leading-6 text-slate-600">{variant.description}</p>
       <p className="mt-2 rounded-lg bg-slate-50 px-3 py-2 text-xs font-medium text-slate-600">{getInteractionHint(variant)}</p>
+      {topicAnalysis ? (
+        <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2 text-xs text-slate-600">
+          <p className="font-semibold text-slate-700">主题解构引擎</p>
+          <p className="mt-1">
+            适配度：{topicAnalysis.theoryFramework.confidence.level} · 目标：
+            {topicAnalysis.deconstruction.assessmentGoal}
+          </p>
+          <p className="mt-1">主题类型：{topicAnalysis.topicType ?? "general"}</p>
+          <p className="mt-1">
+            理论：
+            {topicAnalysis.theoryFramework.primaryTheories.map((item) => item.name).join("、")}
+          </p>
+          {topicAnalysis.formConstraints.specialConsiderations.length > 0 ? (
+            <p className="mt-1">注意：{topicAnalysis.formConstraints.specialConsiderations.join("；")}</p>
+          ) : null}
+        </div>
+      ) : null}
 
       {variant.styleKey === "image_projection" ? (
         <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50/50 p-3">

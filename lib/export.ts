@@ -361,6 +361,19 @@ export async function downloadScreenshotsZip(
 }
 
 function buildReadme(test: GeneratedTest, variant: TestVariant): string {
+  const analysisLines = test.topicAnalysis
+    ? [
+        "",
+        "主题解构摘要:",
+        `- 主题类型: ${test.topicAnalysis.topicType ?? "general"}`,
+        `- 测量目标: ${test.topicAnalysis.deconstruction.assessmentGoal}`,
+        `- 理论适配度: ${test.topicAnalysis.theoryFramework.confidence.level}`,
+        `- 理论组合: ${test.topicAnalysis.theoryFramework.primaryTheories.map((item) => item.name).join("、")}`,
+        `- 风格建议: ${test.topicAnalysis.formConstraints.recommendedStyles.join("、")}`,
+        `- 特别注意: ${test.topicAnalysis.formConstraints.specialConsiderations.join("；") || "无"}`
+      ]
+    : [];
+
   return [
     "TestFlow 导出包说明",
     "",
@@ -376,7 +389,8 @@ function buildReadme(test: GeneratedTest, variant: TestVariant): string {
     "- /copy/content.txt",
     "- /copy/hashtags.txt",
     "- /copy/dm_scripts.json",
-    "- README.txt"
+    "- README.txt",
+    ...analysisLines
   ].join("\n");
 }
 
