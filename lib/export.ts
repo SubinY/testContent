@@ -45,7 +45,7 @@ export function buildStandaloneHtml(variant: TestVariant): string {
       background: linear-gradient(150deg, #f8f3ea 0%, #fffaf4 50%, #eef5fb 100%);
       color: var(--text);
       font-family: "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
-      display: grid;
+      // display: grid;
       place-items: center;
       padding: 24px;
     }
