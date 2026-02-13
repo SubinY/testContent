@@ -12,16 +12,18 @@ import VariantTabs from "@/components/variant-tabs";
 import { buildStandaloneHtml, downloadFullZipBundle, downloadScreenshotsZip, downloadStandaloneHtml } from "@/lib/export";
 import { generateSlideScreenshots } from "@/lib/screenshot";
 import { loadGeneratedTest } from "@/lib/storage";
+import { DEFAULT_THEME_ID, getThemeById, getThemeOptions } from "@/lib/themes";
 import { useTestStore } from "@/store/testStore";
 import type { GeneratedTest } from "@/types";
 
 const PREVIEW_PRESETS: Array<{ id: string; label: string; width: number; height: number; hint?: string }> = [
-  { id: "xhs", label: "小红书 3:4", width: 360, height: 480, hint: "导出截图为 1080×1440（3:4）" },
+  { id: "xhs", label: "小红书 3:4", width: 360, height: 480, hint: "导出截图最小 1080×1440，超长内容会自动增高画布" },
   { id: "iphone-se", label: "iPhone SE", width: 375, height: 667 },
   { id: "iphone-14", label: "iPhone 14", width: 390, height: 844 },
   { id: "iphone-max", label: "iPhone 14 Pro Max", width: 430, height: 932 },
   { id: "android", label: "Android", width: 412, height: 915 }
 ];
+const THEME_OPTIONS = getThemeOptions();
 
 export default function PreviewPage() {
   const showAuxControls = process.env.NEXT_PUBLIC_SHOW_AUX_CONTROLS !== "false";
@@ -33,6 +35,7 @@ export default function PreviewPage() {
   const [statusText, setStatusText] = useState("准备导出。");
   const [exporting, setExporting] = useState(false);
   const [presetId, setPresetId] = useState(PREVIEW_PRESETS[0].id);
+  const [themeId, setThemeId] = useState(DEFAULT_THEME_ID);
 
   const { currentTest, activeVariantId, setCurrentTest, setActiveVariant } = useTestStore();
 
@@ -76,13 +79,14 @@ export default function PreviewPage() {
     if (!selectedVariant) {
       return "";
     }
-    return buildStandaloneHtml(selectedVariant);
-  }, [selectedVariant]);
+    return buildStandaloneHtml(selectedVariant, { themeId });
+  }, [selectedVariant, themeId]);
 
   const activePreset = useMemo(
     () => PREVIEW_PRESETS.find((item) => item.id === presetId) ?? PREVIEW_PRESETS[0],
     [presetId]
   );
+  const activeTheme = useMemo(() => getThemeById(themeId), [themeId]);
 
   if (!mountedTest || !selectedVariant) {
     return (
@@ -111,7 +115,7 @@ export default function PreviewPage() {
   const handleExportHtml = async () => {
     await runExport(
       async () => {
-        downloadStandaloneHtml(selectedVariant, mountedTest.topic);
+        downloadStandaloneHtml(selectedVariant, mountedTest.topic, { themeId });
       },
       "正在导出 HTML...",
       "HTML 导出完成。"
@@ -121,7 +125,7 @@ export default function PreviewPage() {
   const handleExportScreenshots = async () => {
     await runExport(
       async () => {
-        const screenshots = await generateSlideScreenshots(selectedVariant);
+        const screenshots = await generateSlideScreenshots(selectedVariant, { themeId, fullContent: true });
         await downloadScreenshotsZip(screenshots, mountedTest.topic, selectedVariant);
       },
       "正在渲染截图...",
@@ -132,11 +136,13 @@ export default function PreviewPage() {
   const handleExportZip = async () => {
     await runExport(
       async () => {
-        const screenshots = await generateSlideScreenshots(selectedVariant);
+        const screenshots = await generateSlideScreenshots(selectedVariant, { themeId, fullContent: true });
         await downloadFullZipBundle({
           test: mountedTest,
           variant: selectedVariant,
-          screenshots
+          screenshots,
+          themeId,
+          screenshotStrategy: "full-content-slides"
         });
       },
       "正在打包 ZIP...",
@@ -162,24 +168,43 @@ export default function PreviewPage() {
         </div>
 
         <section className="card-surface relative p-4 md:p-6">
-          <div className="mb-3 flex items-center justify-between">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">手机预览</p>
-            <div className="flex items-center gap-2">
-              <label htmlFor="preview-preset" className="text-[11px] font-semibold text-slate-500">
-                分辨率
-              </label>
-              <select
-                id="preview-preset"
-                value={presetId}
-                onChange={(event) => setPresetId(event.target.value)}
-                className="h-8 rounded-lg border border-slate-300 bg-white px-2 text-xs font-semibold text-slate-700 outline-none focus:border-amber-400"
-              >
-                {PREVIEW_PRESETS.map((preset) => (
-                  <option key={preset.id} value={preset.id}>
-                    {preset.label} ({preset.width}×{preset.height})
-                  </option>
-                ))}
-              </select>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-2">
+                <label htmlFor="preview-theme" className="text-[11px] font-semibold text-slate-500">
+                  风格
+                </label>
+                <select
+                  id="preview-theme"
+                  value={themeId}
+                  onChange={(event) => setThemeId(event.target.value)}
+                  className="h-8 rounded-lg border border-slate-300 bg-white px-2 text-xs font-semibold text-slate-700 outline-none focus:border-amber-400"
+                >
+                  {THEME_OPTIONS.map((theme) => (
+                    <option key={theme.id} value={theme.id}>
+                      {theme.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex items-center gap-2">
+                <label htmlFor="preview-preset" className="text-[11px] font-semibold text-slate-500">
+                  分辨率
+                </label>
+                <select
+                  id="preview-preset"
+                  value={presetId}
+                  onChange={(event) => setPresetId(event.target.value)}
+                  className="h-8 rounded-lg border border-slate-300 bg-white px-2 text-xs font-semibold text-slate-700 outline-none focus:border-amber-400"
+                >
+                  {PREVIEW_PRESETS.map((preset) => (
+                    <option key={preset.id} value={preset.id}>
+                      {preset.label} ({preset.width}×{preset.height})
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
           </div>
           {activePreset.hint ? <p className="mb-3 text-[11px] font-medium text-slate-500">{activePreset.hint}</p> : null}
@@ -194,6 +219,8 @@ export default function PreviewPage() {
         <ExportPanel
           exporting={exporting}
           statusText={statusText}
+          currentThemeName={activeTheme.name}
+          screenshotStrategyText="截图采用“看全”策略：单页最小 1080×1440，内容超出时自动增高，不裁切。"
           onExportHtml={handleExportHtml}
           onExportScreenshots={handleExportScreenshots}
           onExportZip={handleExportZip}

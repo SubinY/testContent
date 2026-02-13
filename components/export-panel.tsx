@@ -3,21 +3,28 @@
 interface ExportPanelProps {
   exporting: boolean;
   statusText: string;
+  currentThemeName: string;
+  screenshotStrategyText: string;
   onExportHtml: () => Promise<void>;
   onExportScreenshots: () => Promise<void>;
   onExportZip: () => Promise<void>;
 }
 
 export default function ExportPanel(props: ExportPanelProps) {
-  const { exporting, statusText, onExportHtml, onExportScreenshots, onExportZip } = props;
+  const { exporting, statusText, currentThemeName, screenshotStrategyText, onExportHtml, onExportScreenshots, onExportZip } =
+    props;
 
   return (
     <aside className="rounded-2xl border border-slate-200 bg-white p-4 shadow-soft">
       <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">导出</p>
       <h3 className="mt-2 text-lg font-semibold text-slate-900">导出素材包</h3>
       <p className="mt-1 text-sm leading-6 text-slate-600">
-        支持导出独立 HTML、1080x1440（3:4）截图，以及完整 ZIP 包，便于小红书投放和分发。
+        支持导出独立 HTML、看全截图与完整 ZIP 包，导出视觉风格与中栏预览保持一致。
       </p>
+      <div className="mt-3 rounded-xl border border-amber-100 bg-amber-50/80 p-3">
+        <p className="text-xs font-semibold text-amber-900">当前风格：{currentThemeName}</p>
+        <p className="mt-1 text-xs text-amber-800">{screenshotStrategyText}</p>
+      </div>
 
       <div className="mt-4 grid gap-3">
         <button

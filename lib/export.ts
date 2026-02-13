@@ -2,6 +2,7 @@ import { saveAs } from "file-saver";
 import JSZip from "jszip";
 
 import { getTenantConfig } from "@/lib/tenant";
+import { buildThemeCssVariables, getThemeById } from "@/lib/themes";
 import type { GeneratedTest, TestVariant } from "@/types";
 
 function sanitizeFileName(value: string): string {
@@ -16,10 +17,17 @@ function escapeJsonForScript(value: unknown): string {
   return JSON.stringify(value).replace(/</g, "\\u003c");
 }
 
-export function buildStandaloneHtml(variant: TestVariant): string {
+interface StandaloneHtmlOptions {
+  themeId?: string;
+}
+
+export function buildStandaloneHtml(variant: TestVariant, options?: StandaloneHtmlOptions): string {
   const tenant = getTenantConfig();
   const dataJson = escapeJsonForScript(variant);
   const tenantJson = escapeJsonForScript(tenant);
+  const theme = getThemeById(options?.themeId);
+  const themeVariables = buildThemeCssVariables(theme);
+  const colorScheme = theme.id === "night-graphite" ? "dark" : "light";
 
   return `<!doctype html>
 <html lang="zh-CN">
@@ -29,45 +37,42 @@ export function buildStandaloneHtml(variant: TestVariant): string {
   <title>${variant.headline}</title>
   <style>
     :root {
-      color-scheme: light;
-      --bg: #f8f3ea;
-      --surface: #ffffff;
-      --text: #1f2937;
-      --muted: #475569;
-      --accent: #d97706;
-      --border: #dbe4ee;
-      --radius: 18px;
+      color-scheme: ${colorScheme};
+      ${themeVariables}
     }
     * { box-sizing: border-box; }
     body {
       margin: 0;
       min-height: 100vh;
-      background: linear-gradient(150deg, #f8f3ea 0%, #fffaf4 50%, #eef5fb 100%);
+      background: linear-gradient(
+        150deg,
+        var(--bg-gradient-start) 0%,
+        var(--bg-gradient-mid) 50%,
+        var(--bg-gradient-end) 100%
+      );
       color: var(--text);
-      font-family: "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
-      // display: grid;
-      place-items: center;
+      font-family: var(--font-body);
       padding: 24px;
     }
     .app {
       width: min(720px, 100%);
       background: var(--surface);
-      border-radius: 26px;
+      border-radius: var(--radius-lg);
       border: 1px solid var(--border);
-      box-shadow: 0 14px 40px rgba(15, 23, 42, 0.08);
+      box-shadow: var(--shadow);
       overflow: hidden;
     }
     .header {
       padding: 24px;
       border-bottom: 1px solid var(--border);
-      background: #fff8ee;
+      background: var(--surface-muted);
     }
     .label {
       display: inline-flex;
       padding: 6px 12px;
       border-radius: 999px;
-      background: #ffedd5;
-      color: #9a3412;
+      background: var(--accent-soft);
+      color: var(--accent-hover);
       font-weight: 700;
       font-size: 12px;
       letter-spacing: .08em;
@@ -77,6 +82,7 @@ export function buildStandaloneHtml(variant: TestVariant): string {
       margin: 12px 0 8px;
       font-size: 28px;
       line-height: 1.2;
+      font-family: var(--font-heading);
     }
     p {
       margin: 0;
@@ -92,31 +98,33 @@ export function buildStandaloneHtml(variant: TestVariant): string {
       border: 1px solid var(--border);
       border-radius: var(--radius);
       padding: 16px;
-      background: #fffefb;
+      background: var(--card);
     }
     .question-card h2 {
       margin: 0 0 6px;
       font-size: 20px;
       line-height: 1.35;
+      color: var(--text);
+      font-family: var(--font-heading);
     }
     .style-note {
       margin-top: 10px;
-      border-radius: 10px;
+      border-radius: calc(var(--radius) - 6px);
       padding: 10px 12px;
       font-size: 12px;
       font-weight: 600;
-      color: #475569;
-      background: #f8fafc;
+      color: var(--muted);
+      background: var(--card-alt);
       border: 1px dashed var(--border);
     }
     .hero-image {
       width: 100%;
       height: 220px;
       object-fit: cover;
-      border-radius: 14px;
+      border-radius: calc(var(--radius) - 4px);
       border: 1px solid var(--border);
       margin-top: 14px;
-      background: #f1f5f9;
+      background: var(--surface-muted);
     }
     .options {
       margin-top: 14px;
@@ -126,9 +134,9 @@ export function buildStandaloneHtml(variant: TestVariant): string {
     button {
       width: 100%;
       border: 1px solid var(--border);
-      border-radius: 14px;
+      border-radius: calc(var(--radius) - 4px);
       padding: 12px 14px;
-      background: #fff;
+      background: var(--surface);
       color: var(--text);
       font-size: 16px;
       font-weight: 600;
@@ -138,40 +146,40 @@ export function buildStandaloneHtml(variant: TestVariant): string {
     }
     button:hover {
       transform: translateY(-1px);
-      border-color: #f59e0b;
-      box-shadow: 0 10px 20px rgba(245, 158, 11, 0.2);
+      border-color: var(--accent);
+      box-shadow: var(--accent-shadow);
     }
     button.story-option {
-      border-left: 4px solid #f59e0b;
-      background: #fffbeb;
+      border-left: 4px solid var(--accent);
+      background: var(--card-alt);
     }
     button.attachment-option {
       text-align: center;
       border-radius: 999px;
       font-weight: 700;
-      background: #f8fafc;
+      background: var(--surface-muted);
     }
     button.potential-option {
       border-radius: 18px;
       padding: 14px 16px;
-      background: linear-gradient(180deg, #ffffff 0%, #fff7ed 100%);
+      background: linear-gradient(180deg, var(--surface) 0%, var(--card-alt) 100%);
     }
     button.health-option {
-      border: 1px solid #cbd5e1;
-      background: #f8fafc;
+      border: 1px solid var(--border);
+      background: var(--surface-muted);
     }
     .primary {
       text-align: center;
-      background: var(--accent);
+      background: linear-gradient(135deg, var(--accent), var(--accent-hover));
       color: #fff;
       border: 0;
       font-weight: 700;
-      box-shadow: 0 14px 26px rgba(217, 119, 6, 0.24);
+      box-shadow: var(--accent-shadow);
     }
     .hidden { display: none; }
     .footer {
       padding: 14px 24px 24px;
-      color: #64748b;
+      color: var(--muted);
       font-size: 13px;
     }
   </style>
@@ -340,8 +348,8 @@ export function buildStandaloneHtml(variant: TestVariant): string {
 </html>`;
 }
 
-export function downloadStandaloneHtml(variant: TestVariant, topic: string): void {
-  const html = buildStandaloneHtml(variant);
+export function downloadStandaloneHtml(variant: TestVariant, topic: string, options?: StandaloneHtmlOptions): void {
+  const html = buildStandaloneHtml(variant, options);
   const fileName = `${sanitizeFileName(topic)}-${variant.label.toLowerCase()}.html`;
   const blob = new Blob([html], { type: "text/html;charset=utf-8" });
   saveAs(blob, fileName);
@@ -360,7 +368,14 @@ export async function downloadScreenshotsZip(
   saveAs(file, `${sanitizeFileName(topic)}-${variant.label.toLowerCase()}-screenshots.zip`);
 }
 
-function buildReadme(test: GeneratedTest, variant: TestVariant): string {
+interface ExportReadmeOptions {
+  themeId?: string;
+  screenshotStrategy?: string;
+}
+
+function buildReadme(test: GeneratedTest, variant: TestVariant, options?: ExportReadmeOptions): string {
+  const theme = getThemeById(options?.themeId);
+  const screenshotStrategy = options?.screenshotStrategy ?? "full-content-slides";
   const analysisLines = test.topicAnalysis
     ? [
         "",
@@ -380,6 +395,9 @@ function buildReadme(test: GeneratedTest, variant: TestVariant): string {
     `测试ID: ${test.id}`,
     `主题: ${test.topic}`,
     `变体: ${variant.label}`,
+    `视觉风格: ${theme.name} (${theme.id})`,
+    `截图策略: ${screenshotStrategy}`,
+    "截图说明: 每张截图最小 1080x1440，内容较长时自动增高画布，保证关键信息不被裁切。",
     `创建时间: ${test.createdAt}`,
     "",
     "包含文件:",
@@ -398,10 +416,12 @@ export async function downloadFullZipBundle(params: {
   test: GeneratedTest;
   variant: TestVariant;
   screenshots: Record<string, Blob>;
+  themeId?: string;
+  screenshotStrategy?: string;
 }): Promise<void> {
-  const { test, variant, screenshots } = params;
+  const { test, variant, screenshots, themeId, screenshotStrategy } = params;
   const zip = new JSZip();
-  const html = buildStandaloneHtml(variant);
+  const html = buildStandaloneHtml(variant, { themeId });
 
   zip.file("index.html", html);
 
@@ -429,7 +449,7 @@ export async function downloadFullZipBundle(params: {
   );
   zip.file("copy/hashtags.txt", packageHashtags.join("\n"));
   zip.file("copy/dm_scripts.json", JSON.stringify({ scripts: packageDmScripts }, null, 2));
-  zip.file("README.txt", buildReadme(test, variant));
+  zip.file("README.txt", buildReadme(test, variant, { themeId, screenshotStrategy }));
 
   const file = await zip.generateAsync({ type: "blob" });
   saveAs(file, `${sanitizeFileName(test.topic)}-${variant.label.toLowerCase()}-bundle.zip`);
