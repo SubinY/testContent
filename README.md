@@ -48,12 +48,14 @@ MODELGATE_API_KEY=
 MODELGATE_BASE_URL=https://mg.aid.pub/v1
 MODELGATE_MODEL=gpt-4
 
-# ModelGate（图像）
+# ModelGate（图像，参考 https://docs.modelgate.net/guide/api/image.html）
 MODELGATE_IMAGE_API_KEY=
 MODELGATE_IMAGE_URL=https://mg.aid.pub/api/v1/images/generations
-MODELGATE_IMAGE_MODEL=Nano-Banana
+MODELGATE_IMAGE_MODEL=google/nano-banana
 MODELGATE_IMAGE_SIZE=1024x1024
 MODELGATE_IMAGE_OUTPUT_FORMAT=png
+# output_type: url 返回图片地址，base64 返回 base64（国内可设 base64 加速）
+MODELGATE_IMAGE_OUTPUT_TYPE=url
 
 # Nano Banana（图像生成）
 NANO_BANANA_API_KEY=
@@ -66,7 +68,8 @@ NANO_BANANA_IMAGE_SIZE=1K
 ModelGate 说明：
 - 官网与模型列表：`https://modelgate.net/models`
 - 文字端点（OpenAI 兼容）：`https://mg.aid.pub/v1`
-- 图像端点：`https://mg.aid.pub/api/v1/images/generations`
+- 图像端点：`https://mg.aid.pub/api/v1/images/generations`，文档：<https://docs.modelgate.net/guide/api/image.html>
+- 图像模型名使用 `google/nano-banana`；`MODELGATE_IMAGE_OUTPUT_TYPE=url` 时返回图片 URL，`base64` 时返回 base64
 
 ---
 

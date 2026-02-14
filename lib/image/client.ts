@@ -12,13 +12,15 @@ export function createImageClient(preferredTextProvider: LlmProviderSelection): 
   const nanoClient = new NanoBananaClient();
 
   const preferredOrder: ImageGenerateClient[] = [];
-  if (preferredTextProvider === "modelgate") {
-    preferredOrder.push(modelgateClient, nanoClient);
-  } else if (isModelGateImageConfigured()) {
-    preferredOrder.push(modelgateClient, nanoClient);
-  } else {
-    preferredOrder.push(nanoClient);
-  }
+  // if (preferredTextProvider === "modelgate") {
+  //   preferredOrder.push(modelgateClient, nanoClient);
+  // } else if (isModelGateImageConfigured()) {
+  //   preferredOrder.push(modelgateClient, nanoClient);
+  // } else {
+  //   preferredOrder.push(nanoClient);
+  // }
+
+  preferredOrder.push(nanoClient);
 
   for (const client of preferredOrder) {
     if (client.isAvailable()) {
