@@ -34,8 +34,9 @@ export default function PreviewPage() {
   const [mountedTest, setMountedTest] = useState<GeneratedTest | null>(null);
   const [statusText, setStatusText] = useState("准备导出。");
   const [exporting, setExporting] = useState(false);
-  const [presetId, setPresetId] = useState(PREVIEW_PRESETS[0].id);
+  const [presetId, setPresetId] = useState(PREVIEW_PRESETS[3].id);
   const [themeId, setThemeId] = useState(DEFAULT_THEME_ID);
+  const [showFailureDetails, setShowFailureDetails] = useState(false);
 
   const { currentTest, activeVariantId, setCurrentTest, setActiveVariant } = useTestStore();
 
@@ -98,6 +99,10 @@ export default function PreviewPage() {
     );
   }
 
+  const successCount = mountedTest.successCount ?? mountedTest.variants.length;
+  const failureCount = mountedTest.failureCount ?? mountedTest.failures?.length ?? 0;
+  const failures = mountedTest.failures ?? [];
+
   const runExport = async (task: () => Promise<void>, startText: string, doneText: string) => {
     setExporting(true);
     setStatusText(startText);
@@ -152,6 +157,37 @@ export default function PreviewPage() {
 
   return (
     <main className="page-wrap">
+      {failureCount > 0 ? (
+        <section className="card-surface mb-4 border border-amber-200 bg-amber-50 p-4 text-sm text-slate-700">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="font-medium">
+              ✅ 成功生成 {successCount} 套变体 · ❌ 失败 {failureCount} 套变体
+            </p>
+            {failures.length > 0 ? (
+              <button
+                type="button"
+                onClick={() => setShowFailureDetails((value) => !value)}
+                className="rounded-lg border border-amber-300 bg-white px-2 py-1 text-xs font-semibold text-amber-800 transition hover:bg-amber-100"
+              >
+                {showFailureDetails ? "收起失败详情" : "展开失败详情"}
+              </button>
+            ) : null}
+          </div>
+          {showFailureDetails && failures.length > 0 ? (
+            <ul className="mt-3 space-y-2 text-xs text-slate-600">
+              {failures.map((item, index) => (
+                <li key={`${item.label}-${item.attemptAt}-${index}`} className="rounded-md bg-white/80 px-3 py-2">
+                  <span className="font-semibold text-slate-700">
+                    {item.label}
+                    {item.styleName ? `（${item.styleName}）` : ""}
+                  </span>
+                  <span className="ml-2">{item.error}</span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </section>
+      ) : null}
       <motion.section
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}

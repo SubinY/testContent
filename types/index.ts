@@ -124,6 +124,13 @@ export interface TestVariant {
   };
 }
 
+export interface VariantGenerationFailure {
+  label: string;
+  styleName?: string;
+  error: string;
+  attemptAt: string;
+}
+
 export interface GeneratedTest {
   id: string;
   topic: string;
@@ -131,6 +138,9 @@ export interface GeneratedTest {
   topicAnalysis?: TopicAnalysis;
   debugTrace?: DebugEntry[];
   variants: TestVariant[];
+  successCount?: number;
+  failureCount?: number;
+  failures?: VariantGenerationFailure[];
 }
 
 export interface DebugEntry {

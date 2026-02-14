@@ -19,7 +19,14 @@ import {
 } from "@/lib/prompts";
 import { shouldForceLocalByRunMode } from "@/lib/runmode";
 import { buildTopicAnalysis } from "@/lib/topic-deconstruction";
-import type { DebugEntry, GeneratedTest, GenerateSseEvent, LlmProviderSelection, TestVariant } from "@/types";
+import type {
+  DebugEntry,
+  GeneratedTest,
+  GenerateSseEvent,
+  LlmProviderSelection,
+  TestVariant,
+  VariantGenerationFailure
+} from "@/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -561,60 +568,103 @@ export async function POST(request: Request): Promise<Response> {
         );
 
         const variants: TestVariant[] = [];
+        const failures: VariantGenerationFailure[] = [];
         const existingQuestionTitles: string[] = [];
         for (let index = 0; index < totalVariants; index += 1) {
           const picked = stylesToGenerate[index];
           const label = picked?.label ?? String.fromCharCode(65 + index);
           const style = picked?.style;
-          if (!style) {
-            throw new Error("未找到可用测评风格");
-          }
+          const styleName = style?.name;
 
           controller.enqueue(
             toSseChunk({
               status: "progress",
               progress: 10 + Math.floor((index / totalVariants) * 70),
-              message: `正在生成 ${label} 版（${style.name}）...`
+              message: `正在生成 ${label} 版${styleName ? `（${styleName}）` : ""}...`
             })
           );
 
-          const variant = await createVariantWithProvider({
-            client: llmClient,
-            topic,
-            label,
-            style,
-            variantIndex: index,
-            forceLocal,
-            imageClient,
-            topicAnalysis,
-            existingQuestionTitles,
-            strictRemote,
-            qualityGateEnabled,
-            onDebug: pushDebug,
-            enableImageVariants,
-            allowRemoteImage: !forceLocal
-          });
+          try {
+            if (!style) {
+              throw new Error("未找到可用测评风格");
+            }
 
-          variants.push(variant);
-          variant.questions.forEach((item) => {
-            existingQuestionTitles.push(item.title);
-          });
+            const variant = await createVariantWithProvider({
+              client: llmClient,
+              topic,
+              label,
+              style,
+              variantIndex: index,
+              forceLocal,
+              imageClient,
+              topicAnalysis,
+              existingQuestionTitles,
+              strictRemote,
+              qualityGateEnabled,
+              onDebug: pushDebug,
+              enableImageVariants,
+              allowRemoteImage: !forceLocal
+            });
 
-          controller.enqueue(
-            toSseChunk({
-              status: "variant",
-              index,
-              total: totalVariants,
-              variant
-            })
-          );
+            variants.push(variant);
+            variant.questions.forEach((item) => {
+              existingQuestionTitles.push(item.title);
+            });
 
-          controller.enqueue(
-            toSseChunk({
-              status: "progress",
-              progress: 15 + Math.floor(((index + 1) / totalVariants) * 72),
-              message: `${label} 版生成完成。`
-            })
+            controller.enqueue(
+              toSseChunk({
+                status: "variant",
+                index,
+                total: totalVariants,
+                variant
+              })
+            );
+
+            controller.enqueue(
+              toSseChunk({
+                status: "progress",
+                progress: 15 + Math.floor(((index + 1) / totalVariants) * 72),
+                message: `${label} 版生成完成。`
+              })
+            );
+          } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : "未知错误";
+            failures.push({
+              label,
+              styleName,
+              error: errorMessage,
+              attemptAt: new Date().toISOString()
+            });
+
+            controller.enqueue(
+              toSseChunk({
+                status: "progress",
+                progress: 15 + Math.floor(((index + 1) / totalVariants) * 72),
+                message: `变体 ${label}${styleName ? `（${styleName}）` : ""} 生成失败：${errorMessage}，继续生成其他变体...`
+              })
+            );
+          }
+        }
+
+        const successCount = variants.length;
+        const failureCount = failures.length;
+        controller.enqueue(
+          toSseChunk({
+            status: "progress",
+            progress: 94,
+            message: `生成完成：成功 ${successCount} 个，失败 ${failureCount} 个。`
+          })
+        );
+
+        if (successCount === 0) {
+          const reasonSummary = failures
+            .slice(0, 2)
+            .map((item) => `${item.label}${item.styleName ? `（${item.styleName}）` : ""}：${item.error}`)
+            .join("；");
+          throw new Error(
+            reasonSummary
+              ? `所有变体生成失败：${reasonSummary}。请检查配置或稍后重试。`
+              : "所有变体生成失败，请检查配置或稍后重试。"
           );
         }
 
@@ -624,7 +674,10 @@ export async function POST(request: Request): Promise<Response> {
           createdAt: new Date().toISOString(),
           topicAnalysis,
           debugTrace,
-          variants
+          variants,
+          successCount,
+          failureCount,
+          failures: failureCount > 0 ? failures : undefined
         };
 
         controller.enqueue(
