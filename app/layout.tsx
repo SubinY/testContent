@@ -14,7 +14,7 @@ const displayFont = Fraunces({
 });
 
 export const metadata: Metadata = {
-  title: "TestFlow V1",
+  title: "TestFlow V9",
   description: "输入主题，生成心理测试并导出 HTML、截图与 ZIP"
 };
 

@@ -6,6 +6,20 @@ export interface TestOption {
   scoreVector?: Record<string, number>;
 }
 
+export interface DailyContent {
+  date: string;
+  shortTheme: string;
+  fullContent: string;
+  sources: DailySource[];
+  generatedAt: string;
+}
+
+export interface DailySource {
+  name: string;
+  url: string;
+  titles: string[];
+}
+
 export type SensoryChannel = "visual" | "auditory" | "tactile" | "kinesthetic" | "mixed";
 export type EmotionalTone = "positive" | "negative" | "neutral" | "ambivalent";
 export type BehavioralTendency = "approach" | "avoidance" | "control" | "submission";

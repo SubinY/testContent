@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { useRouter } from "next/navigation";
 
+import DailyRecommendationCard from "@/components/daily-recommendation-card";
 import DebugFloatingPanel from "@/components/debug-floating-panel";
 import { buildMockGeneratedTest } from "@/lib/mock-test";
 import { ASSESSMENT_STYLES, STYLE_LABELS, type StyleLabel } from "@/lib/prompts";
@@ -206,6 +207,7 @@ export default function HomePage() {
 
   return (
     <main className="page-wrap">
+      <DailyRecommendationCard />
       <motion.section
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -214,62 +216,62 @@ export default function HomePage() {
       >
         <article className="card-surface relative p-6 md:p-8">
           {showAuxControls ? (
-          <div className="absolute right-6 top-6 flex items-center gap-2 md:right-8 md:top-8">
-            <div className="inline-flex h-8 overflow-hidden rounded-full border border-slate-300 bg-white">
+            <div className="absolute right-6 !top-3 flex items-center gap-2 md:right-8 md:top-8">
+              <div className="inline-flex h-8 overflow-hidden rounded-full border border-slate-300 bg-white">
+                <button
+                  type="button"
+                  onClick={() => setRunMode("api")}
+                  className={[
+                    "h-8 px-3 text-xs font-semibold transition-all",
+                    runMode === "api" ? "bg-slate-900 text-white" : "bg-transparent text-slate-600 hover:bg-slate-50"
+                  ].join(" ")}
+                  title="API 测试：调用 /api/generate 与远程模型"
+                >
+                  API
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRunMode("local")}
+                  className={[
+                    "h-8 px-3 text-xs font-semibold transition-all",
+                    runMode === "local" ? "bg-slate-900 text-white" : "bg-transparent text-slate-600 hover:bg-slate-50"
+                  ].join(" ")}
+                  title="本地测试：不调用远程 API"
+                >
+                  本地
+                </button>
+              </div>
               <button
                 type="button"
-                onClick={() => setRunMode("api")}
+                onClick={() => setEnableImageVariants((value) => !value)}
                 className={[
-                  "h-8 px-3 text-xs font-semibold transition-all",
-                  runMode === "api" ? "bg-slate-900 text-white" : "bg-transparent text-slate-600 hover:bg-slate-50"
+                  "inline-flex h-8 items-center gap-2 rounded-full border px-3 text-xs font-semibold transition-all",
+                  enableImageVariants
+                    ? "border-amber-300 bg-amber-50 text-amber-900"
+                    : "border-slate-300 bg-white text-slate-600"
                 ].join(" ")}
-                title="API 测试：调用 /api/generate 与远程模型"
+                title="图像变体开启后，图像端会按后端策略自动选择 ModelGate 或 Nano Banana"
               >
-                API
+                <span>图像变体</span>
+                <span>{enableImageVariants ? "开" : "关"}</span>
               </button>
               <button
                 type="button"
-                onClick={() => setRunMode("local")}
+                onClick={() => setQualityGateEnabled((value) => !value)}
                 className={[
-                  "h-8 px-3 text-xs font-semibold transition-all",
-                  runMode === "local" ? "bg-slate-900 text-white" : "bg-transparent text-slate-600 hover:bg-slate-50"
+                  "inline-flex h-8 items-center gap-2 rounded-full border px-3 text-xs font-semibold transition-all",
+                  qualityGateEnabled
+                    ? "border-emerald-300 bg-emerald-50 text-emerald-800"
+                    : "border-slate-300 bg-white text-slate-600"
                 ].join(" ")}
-                title="本地测试：不调用远程 API"
+                title="关闭后跳过主题一致性与去相似质量门控"
               >
-                本地
+                <span>质量门控</span>
+                <span>{qualityGateEnabled ? "开" : "关"}</span>
               </button>
             </div>
-            <button
-              type="button"
-              onClick={() => setEnableImageVariants((value) => !value)}
-              className={[
-                "inline-flex h-8 items-center gap-2 rounded-full border px-3 text-xs font-semibold transition-all",
-                enableImageVariants
-                  ? "border-amber-300 bg-amber-50 text-amber-900"
-                  : "border-slate-300 bg-white text-slate-600"
-              ].join(" ")}
-              title="图像变体开启后，图像端会按后端策略自动选择 ModelGate 或 Nano Banana"
-            >
-              <span>图像变体</span>
-              <span>{enableImageVariants ? "开" : "关"}</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setQualityGateEnabled((value) => !value)}
-              className={[
-                "inline-flex h-8 items-center gap-2 rounded-full border px-3 text-xs font-semibold transition-all",
-                qualityGateEnabled
-                  ? "border-emerald-300 bg-emerald-50 text-emerald-800"
-                  : "border-slate-300 bg-white text-slate-600"
-              ].join(" ")}
-              title="关闭后跳过主题一致性与去相似质量门控"
-            >
-              <span>质量门控</span>
-              <span>{qualityGateEnabled ? "开" : "关"}</span>
-            </button>
-          </div>
           ) : null}
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">TestFlow V1</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">TestFlow V9</p>
           <h1 className="mt-2 text-4xl font-semibold leading-tight text-slate-900 md:text-5xl">
             输入主题，快速生成
             <br />
@@ -448,13 +450,13 @@ export default function HomePage() {
           <div className="mt-5 grid gap-2">
             {isGenerating
               ? Array.from({ length: 4 }).map((_, index) => (
-                  <div key={`skeleton-${index}`} className="h-10 animate-pulse rounded-xl bg-slate-200/70" />
-                ))
+                <div key={`skeleton-${index}`} className="h-10 animate-pulse rounded-xl bg-slate-200/70" />
+              ))
               : streamEvents.slice(0, 6).map((item, index) => (
-                  <div key={`${item}-${index}`} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
-                    {item}
-                  </div>
-                ))}
+                <div key={`${item}-${index}`} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                  {item}
+                </div>
+              ))}
           </div>
 
           {!isGenerating && streamEvents.length > 0 ? (
