@@ -205,3 +205,55 @@ export type GenerateSseEvent =
   | GenerateSseEventDone
   | GenerateSseEventDebug
   | GenerateSseEventError;
+
+export interface ApiError {
+  code: "INVALID_PARAMS" | "LLM_ERROR" | "STORAGE_ERROR" | "UNKNOWN_ERROR";
+  message: string;
+}
+
+export interface ApiResponse<T> {
+  success: boolean;
+  data?: T;
+  error?: ApiError;
+}
+
+export interface GenerateParams {
+  topic: string;
+  count?: number;
+  enableImageVariants?: boolean;
+  strictRemote?: boolean;
+  qualityGateEnabled?: boolean;
+  provider?: LlmProviderSelection;
+  variantInputMode?: "draw" | "select";
+  selectedVariantLabel?: "A" | "B" | "C" | "D" | "E";
+}
+
+export interface GenerateResult {
+  test: GeneratedTest;
+}
+
+export interface XiaohongshuVariantInput {
+  headline?: string;
+  description?: string;
+  coverTitle?: string;
+  coverSubtitle?: string;
+  styleName?: string;
+  label: string;
+  hashtags: string[];
+  questions: Array<{ title: string }>;
+  results: Array<{ title: string; description: string }>;
+}
+
+export interface XiaohongshuGenerateParams {
+  topic: string;
+  provider?: LlmProviderSelection;
+  variant: XiaohongshuVariantInput;
+}
+
+export interface XiaohongshuGenerateResult {
+  title: string;
+  body: string;
+  hashtags: string[];
+  source: "remote" | "fallback";
+  compliancePromptPath: string;
+}

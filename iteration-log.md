@@ -1,5 +1,51 @@
 # TestFlow 迭代记录
 
+## [2026-02-24] — V10 能力层架构重构
+
+### 🚀 本次目标
+能力层重构，建立 Service 架构，API 与 Prompt 解耦。
+
+### 🧠 工作内容
+- 新增服务层与基础能力：
+  - `lib/services/generate-service.ts`：承接 `/api/generate` 生成编排、SSE 输出、质量门控、日志。
+  - `lib/services/daily-service.ts`：承接每日内容读取/生成与热点查询。
+  - `lib/services/xiaohongshu-service.ts`：承接小红书文案生成编排。
+  - `lib/services/api-response.ts`：统一 `ok/fail` 响应包装。
+  - `lib/logger.ts`：统一 `info/warn/error` 日志接口。
+- 路由瘦身（API 仅保留参数校验 + 调 service）：
+  - `app/api/generate/route.ts`
+  - `app/api/daily/content/route.ts`
+  - `app/api/daily/generate/route.ts`
+  - `app/api/daily/test-hotspots/route.ts`
+  - `app/api/xiaohongshu/generate/route.ts`
+- Prompt 解耦深化：
+  - `lib/prompts/xiaohongshu.ts` 仅保留 prompt 构建函数。
+  - LLM 调用迁移到 `lib/services/xiaohongshu-service.ts`。
+- 存储分层整理：
+  - `lib/storage.ts` 改为服务端 JSON 读写入口（`readJSON` / `writeJSON`）。
+  - `lib/daily-storage.ts` 改为基于 `lib/storage.ts` 的领域封装。
+  - 新增 `lib/client-storage.ts` 承担浏览器 localStorage 缓存。
+  - `app/page.tsx`、`app/preview/[testId]/page.tsx` 改为使用 `lib/client-storage.ts`。
+- 类型与前端契约对齐：
+  - `types/index.ts` 新增 `ApiResponse<T>`、`ApiError`、`GenerateParams/Result`、小红书相关类型。
+  - `components/daily-recommendation-card.tsx`、`lib/export.ts`、`app/page.tsx` 对齐统一响应结构解析。
+
+### ✅ 已完成
+- 页面层无直接 LLM 调用。
+- 每日与小红书 API 已统一为 `{ success, data, error }` 响应结构。
+- `/api/generate` 的业务编排已下沉至 service，路由改为薄路由。
+- 每日与小红书的 prompt 构建已与 route 解耦，集中在 `service + lib/prompts`。
+- 核心服务链路加入统一 logger 打点。
+- `npm run typecheck` 通过。
+
+### ❌ 遗留问题
+- `/api/generate` 为 SSE 流接口，成功响应未改为标准 JSON 包装（按流式契约保留）。
+- 仍可继续将部分历史模块按 V10 模板做目录细化（例如 `lib/services/export-service.ts` 视后续是否需要）。
+
+### 📝 测试结果
+- 已执行 TypeScript 类型检查：通过。
+- 已完成主要前后端调用链静态验证（daily/generate/xiaohongshu/generate + 首页/预览页）无类型错误。
+
 ## 2026-02-13 19:08:00 · Iteration 014 · V6 ModelGate 接入与文本/图像模型协同
 
 ### 本次需求

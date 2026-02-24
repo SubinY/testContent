@@ -1,17 +1,18 @@
 "use client";
 
+import { flushSync } from "react-dom";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { useRouter } from "next/navigation";
 
 import DailyRecommendationCard from "@/components/daily-recommendation-card";
 import DebugFloatingPanel from "@/components/debug-floating-panel";
+import { saveGeneratedTest, saveLatestTestId } from "@/lib/client-storage";
 import { buildMockGeneratedTest } from "@/lib/mock-test";
 import { ASSESSMENT_STYLES, STYLE_LABELS, type StyleLabel } from "@/lib/prompts";
 import { getClientDefaultRunMode, type RunMode } from "@/lib/runmode";
-import { saveGeneratedTest, saveLatestTestId } from "@/lib/storage";
 import { useTestStore } from "@/store/testStore";
-import type { DebugEntry, GenerateSseEvent, GeneratedTest, LlmProviderSelection } from "@/types";
+import type { ApiResponse, DebugEntry, GenerateSseEvent, GeneratedTest, LlmProviderSelection } from "@/types";
 
 const MIN_COUNT = 1;
 const MAX_COUNT = 5;
@@ -46,6 +47,7 @@ export default function HomePage() {
   const maxCount = enableImageVariants ? MAX_COUNT : MAX_COUNT_WITHOUT_IMAGE;
 
   const {
+    currentTest,
     isGenerating,
     progress,
     progressMessage,
@@ -117,8 +119,7 @@ export default function HomePage() {
         saveLatestTestId(test.id);
         setCurrentTest(test);
         setGenerating(false);
-        setProgress(100, "本地模板生成完成，正在跳转预览...");
-        router.push(`/preview/${test.id}`);
+        setProgress(100, "本地模板生成完成。");
         return;
       }
 
@@ -134,12 +135,17 @@ export default function HomePage() {
           enableImageVariants,
           strictRemote: true,
           qualityGateEnabled,
-          provider
+          provider,
+          stream: true
         })
       });
 
-      if (!response.ok || !response.body) {
-        throw new Error("生成请求失败。");
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as ApiResponse<never> | null;
+        throw new Error(payload?.error?.message ?? "生成请求失败。");
+      }
+      if (!response.body) {
+        throw new Error("生成请求失败：未收到流式响应。");
       }
 
       const reader = response.body.getReader();
@@ -165,26 +171,33 @@ export default function HomePage() {
             }
 
             if (eventData.status === "progress") {
-              setProgress(eventData.progress, eventData.message);
-              addStreamEvent(eventData.message);
+              flushSync(() => {
+                setProgress(eventData.progress, eventData.message);
+                addStreamEvent(eventData.message);
+              });
             }
 
             if (eventData.status === "variant") {
-              addStreamEvent(`变体 ${eventData.variant.label} 已生成。`);
+              flushSync(() => {
+                addStreamEvent(`变体 ${eventData.variant.label} 已生成。`);
+              });
             }
 
             if (eventData.status === "debug") {
-              setDebugEntries((current) => [...current, eventData.entry].slice(-200));
+              flushSync(() => {
+                setDebugEntries((current) => [...current, eventData.entry].slice(-200));
+              });
             }
 
             if (eventData.status === "done") {
               const test = eventData.test as GeneratedTest;
               saveGeneratedTest(test);
               saveLatestTestId(test.id);
-              setCurrentTest(test);
-              setGenerating(false);
-              setProgress(100, "生成完成，正在跳转预览...");
-              router.push(`/preview/${test.id}`);
+              flushSync(() => {
+                setCurrentTest(test);
+                setGenerating(false);
+                setProgress(100, "生成完成。");
+              });
               return;
             }
 
@@ -452,7 +465,7 @@ export default function HomePage() {
               ? Array.from({ length: 4 }).map((_, index) => (
                 <div key={`skeleton-${index}`} className="h-10 animate-pulse rounded-xl bg-slate-200/70" />
               ))
-              : streamEvents.slice(0, 6).map((item, index) => (
+              : [...streamEvents].reverse().slice(-8).map((item, index) => (
                 <div key={`${item}-${index}`} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
                   {item}
                 </div>
@@ -460,13 +473,24 @@ export default function HomePage() {
           </div>
 
           {!isGenerating && streamEvents.length > 0 ? (
-            <button
-              type="button"
-              onClick={resetGeneration}
-              className="mt-5 w-full rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition-all hover:border-amber-300 hover:bg-amber-50"
-            >
-              清空日志
-            </button>
+            <div className="mt-5 flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={resetGeneration}
+                className="w-full rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition-all hover:border-amber-300 hover:bg-amber-50"
+              >
+                清空日志
+              </button>
+              {currentTest ? (
+                <button
+                  type="button"
+                  onClick={() => router.push(`/preview/${currentTest.id}`)}
+                  className="w-full rounded-xl border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-900 transition-all hover:bg-amber-100"
+                >
+                  前往预览
+                </button>
+              ) : null}
+            </div>
           ) : null}
         </aside>
       </motion.section>

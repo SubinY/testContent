@@ -3,7 +3,7 @@ import JSZip from "jszip";
 
 import { getTenantConfig } from "@/lib/tenant";
 import { buildThemeCssVariables, getThemeById } from "@/lib/themes";
-import type { GeneratedTest, TestVariant } from "@/types";
+import type { ApiResponse, GeneratedTest, TestVariant } from "@/types";
 
 function sanitizeFileName(value: string): string {
   return value
@@ -406,16 +406,17 @@ async function resolveXiaohongshuCopy(test: GeneratedTest, variant: TestVariant)
     if (!response.ok) {
       return fallback;
     }
-    const payload = (await response.json()) as {
-      result?: {
-        title?: string;
-        body?: string;
-        hashtags?: string[];
-      };
-    };
-    const title = payload.result?.title?.trim() || fallback.title;
-    const body = payload.result?.body?.trim() || fallback.body;
-    const hashtags = normalizeHashtags(payload.result?.hashtags ?? fallback.hashtags);
+    const payload = (await response.json()) as ApiResponse<{
+      title?: string;
+      body?: string;
+      hashtags?: string[];
+    }>;
+    if (!payload.success || !payload.data) {
+      return fallback;
+    }
+    const title = payload.data.title?.trim() || fallback.title;
+    const body = payload.data.body?.trim() || fallback.body;
+    const hashtags = normalizeHashtags(payload.data.hashtags ?? fallback.hashtags);
     if (!title || !body || hashtags.length === 0) {
       return fallback;
     }

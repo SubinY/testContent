@@ -1,6 +1,7 @@
 import { z } from "zod";
 
-import { generateXiaohongshuCopy } from "@/lib/prompts/xiaohongshu";
+import { fail, ok } from "@/lib/services/api-response";
+import { generateXiaohongshuContent } from "@/lib/services/xiaohongshu-service";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,14 +26,20 @@ export async function POST(request: Request): Promise<Response> {
   const payload = await request.json().catch(() => null);
   const parsed = requestSchema.safeParse(payload);
   if (!parsed.success) {
-    return Response.json({ message: "请求参数不合法。" }, { status: 400 });
+    return Response.json(fail("INVALID_PARAMS", "请求参数不合法。"), { status: 400 });
   }
 
-  const result = await generateXiaohongshuCopy({
-    topic: parsed.data.topic,
-    variant: parsed.data.variant,
-    preferredProvider: parsed.data.provider ?? "auto"
-  });
-
-  return Response.json({ result });
+  try {
+    const result = await generateXiaohongshuContent({
+      topic: parsed.data.topic,
+      variant: parsed.data.variant,
+      provider: parsed.data.provider
+    });
+    return Response.json(ok(result));
+  } catch (error) {
+    return Response.json(
+      fail("LLM_ERROR", error instanceof Error ? error.message : "文案生成失败。"),
+      { status: 500 }
+    );
+  }
 }

@@ -1,29 +1,14 @@
-import { promises as fs } from "fs";
 import path from "path";
 
+import { readJSON, writeJSON } from "@/lib/storage";
 import type { DailyContent } from "@/types";
 
 const DATA_DIR = path.join(process.cwd(), "data");
 const DATA_PATH = path.join(DATA_DIR, "daily-content.json");
 
-async function ensureStore(): Promise<void> {
-  await fs.mkdir(DATA_DIR, { recursive: true });
-  try {
-    await fs.access(DATA_PATH);
-  } catch {
-    await fs.writeFile(DATA_PATH, "{}", "utf8");
-  }
-}
-
 async function readStore(): Promise<Record<string, DailyContent>> {
-  await ensureStore();
-  const raw = await fs.readFile(DATA_PATH, "utf8");
-  try {
-    const parsed = JSON.parse(raw) as Record<string, DailyContent>;
-    return parsed && typeof parsed === "object" ? parsed : {};
-  } catch {
-    return {};
-  }
+  const store = await readJSON<Record<string, DailyContent>>(DATA_PATH, {});
+  return store && typeof store === "object" ? store : {};
 }
 
 export async function readDailyContent(
@@ -39,7 +24,7 @@ export async function readDailyContent(
 export async function writeDailyContent(date: string, content: DailyContent): Promise<void> {
   const store = await readStore();
   store[date] = content;
-  await fs.writeFile(DATA_PATH, JSON.stringify(store, null, 2), "utf8");
+  await writeJSON(DATA_PATH, store);
 }
 
 export async function checkContentExists(date: string): Promise<boolean> {

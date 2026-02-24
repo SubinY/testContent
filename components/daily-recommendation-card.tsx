@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 
 import DailyRecommendationDetail from "@/components/daily-recommendation-detail";
-import type { DailyContent } from "@/types";
+import type { ApiResponse, DailyContent } from "@/types";
 
-interface DailyContentResponse {
+interface DailyContentPayload {
   date: string;
   content: DailyContent | null;
 }
@@ -25,8 +25,11 @@ export default function DailyRecommendationCard() {
     if (!response.ok) {
       throw new Error("加载今日推荐失败。");
     }
-    const data = (await response.json()) as DailyContentResponse;
-    return data.content;
+    const payload = (await response.json()) as ApiResponse<DailyContentPayload>;
+    if (!payload.success || !payload.data) {
+      throw new Error(payload.error?.message ?? "加载今日推荐失败。");
+    }
+    return payload.data.content;
   };
 
   const generateTodayContent = async (force = false): Promise<DailyContent> => {
@@ -38,10 +41,14 @@ export default function DailyRecommendationCard() {
       body: JSON.stringify({ date: today, force })
     });
     if (!response.ok) {
-      const payload = await response.json().catch(() => null);
-      throw new Error(payload?.message ?? "生成失败，请稍后重试。");
+      const payload = (await response.json().catch(() => null)) as ApiResponse<DailyContent> | null;
+      throw new Error(payload?.error?.message ?? "生成失败，请稍后重试。");
     }
-    return (await response.json()) as DailyContent;
+    const payload = (await response.json()) as ApiResponse<DailyContent>;
+    if (!payload.success || !payload.data) {
+      throw new Error(payload.error?.message ?? "生成失败，请稍后重试。");
+    }
+    return payload.data;
   };
 
   const ensureContent = async (force = false) => {
