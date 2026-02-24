@@ -63,7 +63,13 @@ NANO_BANANA_BASE_URL=https://grsai.dakka.com.cn
 NANO_BANANA_MODEL=nano-banana-fast
 NANO_BANANA_ASPECT_RATIO=auto
 NANO_BANANA_IMAGE_SIZE=1K
+
+# Vercel 部署时每日内容存储（必填，否则 EROFS 无法写入 data/daily-content.json）
+# 在 Vercel 项目 → Storage → Create Database → Blob，创建后会自动添加此变量
+BLOB_READ_WRITE_TOKEN=
 ```
+
+**Vercel 部署说明**：Vercel 环境下项目目录只读，无法写入 `data/daily-content.json`。若需在 Vercel 上使用每日生成/存储功能，请在 Vercel 项目里创建 Blob Store，并配置环境变量 `BLOB_READ_WRITE_TOKEN`；未配置时在 Vercel 上不会使用 Blob，写入会失败。本地开发仍使用本地文件 `data/daily-content.json`。
 
 ModelGate 说明：
 - 官网与模型列表：`https://modelgate.net/models`
