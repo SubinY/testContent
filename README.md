@@ -1,12 +1,23 @@
-# TestFlow V9 使用文档
+# TestFlow 使用文档
 
-基于 Next.js 14 的心理测试生成与导出系统，支持：
+基于 Next.js 14 的心理测试生成与导出系统。**V10 能力层架构重构已完成**（详见 [docs/demand-v10.md](docs/demand-v10.md)），采用「UI → API → Service 能力层」分层，便于能力复用与后续 Agent 接入。
+
+## 功能概览
 
 - SSE 流式生成（逐变体返回）
 - 预览多变体（按请求 `count` 抽样风格）
 - 导出独立 HTML
 - 导出“看全”截图包（宽 1080，最小高 1440，内容超长自动增高）
 - 导出完整 ZIP（HTML + 截图 + 私信素材）
+- 每日推荐（Daily）等能力均通过 Service 层统一封装，API 与 Prompt 解耦
+
+### V10 架构要点
+
+- **分层**：UI → API（Route）→ Service 能力层；业务逻辑仅在 `lib/services/*`，Route 只做参数校验、调 Service、统一响应。
+- **API 与 Prompt 解耦**：Prompt 构建仅在 `lib/prompts` 与各 Service 内，Route 不直接调用 prompt 或 LLM。
+- **统一响应**：所有 API 返回 `{ success, data?, error? }`，错误码规范见需求文档。
+- **统一入口**：LLM 调用仅通过 `lib/llm/client.ts`；业务文件读写通过 `lib/storage`（或 daily-storage 等封装）；日志使用 `lib/logger.ts`。
+- **类型与目录**：核心类型在 `types/index.ts`；目录符合 `docs/demand-v10.md` 中的模板与禁放清单，便于后续能力扩展与 Agent 复用。
 
 ---
 
@@ -80,8 +91,8 @@ ModelGate 说明：
 - `lib/llm/types.ts`：统一 Provider 接口与输入输出类型
 - `lib/llm/providers/openai.ts`：OpenAI 实现
 - `lib/llm/providers/deepseek.ts`：DeepSeek 实现
-- `lib/llm/client.ts`：Provider 选择、可用性检测、失败切换
-- `app/api/generate/route.ts`：业务 API，调用统一 LLM 客户端
+- `lib/llm/client.ts`：Provider 选择、可用性检测、失败切换（全项目唯一 LLM 调用入口）
+- `app/api/generate/route.ts`：参数校验后调用 `lib/services/generate-service.ts`，由 Service 内调用 `lib/llm/client` 与 `lib/prompts` 完成生成
 
 ### 3.2 选择策略
 
@@ -115,6 +126,8 @@ ModelGate 说明：
 ---
 
 ## 4. API 说明
+
+所有 `/api/*` 接口均采用 V10 统一响应结构：`{ success: boolean; data?: T; error?: { code, message } }`。错误码包括 `INVALID_PARAMS`、`LLM_ERROR`、`STORAGE_ERROR`、`UNKNOWN_ERROR` 等。
 
 ### 4.1 生成接口
 
@@ -187,7 +200,7 @@ V4 迭代新增：
 2. 在 `lib/llm/client.ts` 注册 Provider 和优先级
 3. 在 `.env.example` 增加对应变量
 
-这样就能保持业务层（`/api/generate`）不变，后续项目可直接复用 `lib/llm/*`。
+这样就能保持业务层（Route → Service → `lib/llm`）不变，后续项目可直接复用 `lib/llm/*` 与能力层架构。
 
 ---
 
